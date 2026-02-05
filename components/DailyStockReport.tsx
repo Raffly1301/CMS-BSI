@@ -45,7 +45,8 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items }) => {
     const startOfDay = new Date(selectedDate).setHours(0, 0, 0, 0);
     const endOfDay = new Date(selectedDate).setHours(23, 59, 59, 999);
 
-    const itemNames = Array.from(new Set(items.map(i => i.itemName)));
+    // Added explicit type string[] to itemNames to resolve 'unknown' inference in some TS environments
+    const itemNames: string[] = Array.from(new Set(items.map(i => i.itemName)));
     const rows: StockRow[] = [];
 
     // Separate processing for WIP Total and regular items
@@ -59,6 +60,7 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items }) => {
 
       const sum = (arr: ChillerItem[], key: 'kgs' | 'pcs') => arr.reduce((acc, curr) => acc + (curr[key] || 0), 0);
 
+      // Return object conforming to StockRow interface
       return {
         name: label,
         openingKgs: sum(opening, 'kgs'),
@@ -76,8 +78,8 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items }) => {
     // Add WIP Overall Row
     rows.push(processGroup('WIP', i => !!i.isWIP, 'TOTAL WIP', true));
 
-    // Add Individual Items Row (Non-WIP)
-    itemNames.forEach(name => {
+    // Add Individual Items Row (Non-WIP) - added explicit type for 'name' to fix argument passing error
+    itemNames.forEach((name: string) => {
       const row = processGroup(name, i => i.itemName === name && !i.isWIP, name);
       if (row.openingKgs > 0 || row.inKgs > 0 || row.outKgs > 0) {
         rows.push(row);
