@@ -14,6 +14,12 @@ export type OutflowDestination =
   | 'IQF' 
   | 'Retur';
 
+export interface User {
+  username: string;
+  role: 'ADMIN' | 'USER';
+  fullName: string;
+}
+
 export interface ChillerItem {
   id: string;
   itemName: string;
@@ -23,7 +29,7 @@ export interface ChillerItem {
   slaughteringDate: string;
   source: InflowSource;
   entryTimestamp: number;
-  status: 'IN_CHILLER' | 'OUT_CHILLER';
+  status: 'IN_CHILLER' | 'OUT_CHILLER' | 'PENDING_QC';
   exitTimestamp?: number;
   destination?: OutflowDestination;
   isWIP?: boolean;
