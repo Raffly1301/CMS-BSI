@@ -20,12 +20,14 @@ import {
 } from 'lucide-react';
 
 interface InflowFormProps {
-  onSubmitBatch: (items: Omit<ChillerItem, 'id' | 'entryTimestamp' | 'status'>[]) => void;
+  // Corrected Omit to exclude batchId which is generated on submission
+  onSubmitBatch: (items: Omit<ChillerItem, 'id' | 'batchId' | 'entryTimestamp' | 'status'>[]) => void;
 }
 
 const InflowForm: React.FC<InflowFormProps> = ({ onSubmitBatch }) => {
   const [isBatchMode, setIsBatchMode] = useState(false);
-  const [draftItems, setDraftItems] = useState<Omit<ChillerItem, 'id' | 'entryTimestamp' | 'status'>[]>([]);
+  // Corrected state type to match Omit requirements
+  const [draftItems, setDraftItems] = useState<Omit<ChillerItem, 'id' | 'batchId' | 'entryTimestamp' | 'status'>[]>([]);
   const [formData, setFormData] = useState({
     itemName: '',
     pcs: 0,
@@ -44,6 +46,7 @@ const InflowForm: React.FC<InflowFormProps> = ({ onSubmitBatch }) => {
     }
 
     if (isBatchMode) {
+      // Form data satisfies the required fields after Omit
       setDraftItems(prev => [...prev, { ...formData }]);
       setFormData(prev => ({ ...prev, itemName: '', pcs: 0, kgs: 0, isWIP: false }));
     } else {
