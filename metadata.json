@@ -1,0 +1,7 @@
+{
+  "name": "BSI CMS",
+  "description": "Sistem manajemen chiller profesional untuk Bounty Segar Indonesia, mengatur alur masuk dan keluar barang (In/Out) dengan pelaporan mendetail.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
