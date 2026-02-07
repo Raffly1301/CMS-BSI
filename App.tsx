@@ -186,7 +186,7 @@ const App: React.FC = () => {
               {showText && (
                 <div className="flex flex-col leading-tight overflow-hidden">
                   <span className="text-[7px] font-black uppercase tracking-[0.2em] opacity-80 whitespace-nowrap">Chiller Management</span>
-                  <span className="font-brand font-bold italic text-[13px] whitespace-nowrap leading-none mt-0.5">Bounty Segar Indonesia</span>
+                  <span className="font-brand font-bold italic text-[14px] whitespace-nowrap leading-none mt-0.5">Bounty Segar Indonesia</span>
                 </div>
               )}
             </div>
