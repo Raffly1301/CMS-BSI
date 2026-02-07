@@ -125,7 +125,7 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-2">
         <div>
           <h2 className="text-xl md:text-2xl font-black text-gray-900 tracking-tight uppercase">Stok Chiller Aktif</h2>
-          <p className="text-[8px] md:text-[10px] text-gray-500 font-bold uppercase tracking-widest">Manajemen Inventori & Persetujuan QC</p>
+          <p className="text-[8px] md:text-[10px] text-gray-500 font-bold uppercase tracking-widest">Manajemen Inventori</p>
         </div>
         <div className="flex items-center gap-2 w-full md:w-auto">
           <div className="relative flex-1 md:w-64">
