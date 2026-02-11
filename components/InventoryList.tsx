@@ -58,6 +58,7 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
       const matchesSearch = 
         i.itemName.toLowerCase().includes(searchTerm.toLowerCase()) || 
         i.source.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        i.batchId.toLowerCase().includes(searchTerm.toLowerCase()) ||
         i.id.toLowerCase().includes(searchTerm.toLowerCase());
       
       const matchesSource = filterSource === 'ALL' || i.source === filterSource;
@@ -194,7 +195,7 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
                       </span>
                     )}
                   </div>
-                  <span className="text-[8px] font-bold text-gray-300 truncate max-w-[100px]">{item.id}</span>
+                  <span className="text-[8px] font-black text-gray-300 group-hover:text-red-400 transition-colors truncate max-w-[180px] text-right uppercase">{item.batchId}</span>
                 </div>
                 
                 <div className="flex flex-col md:flex-row md:items-center gap-3 md:gap-4 flex-1">
@@ -256,7 +257,7 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
               <div className="flex justify-between items-start mb-6">
                 <div>
                   <h3 className="text-xl font-black text-gray-900 uppercase">Proses Pengeluaran</h3>
-                  <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">{isBatchOutModalOpen ? `${selectedItemIds.length} Batch terpilih` : `ID: ${selectedItemForSingleOut?.id}`}</p>
+                  <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">{isBatchOutModalOpen ? `${selectedItemIds.length} Batch terpilih` : `BATCH: ${selectedItemForSingleOut?.batchId}`}</p>
                 </div>
                 <button onClick={() => { setIsBatchOutModalOpen(false); setSelectedItemForSingleOut(null); setShowAdminCondemConfirm(false); }} className="p-1 hover:bg-gray-100 rounded-lg transition-colors"><X size={20} className="text-gray-400" /></button>
               </div>

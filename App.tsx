@@ -75,7 +75,17 @@ const App: React.FC = () => {
     if (!user) return;
     newItems.forEach(item => {
       const chillerId = generateId('CHL');
-      const batchId = `BSI-${Date.now().toString().slice(-6)}`;
+      
+      const formatDateForBatch = (dateStr: string) => {
+        const parts = dateStr.split('-');
+        if (parts.length !== 3) return "000000";
+        const [y, m, d] = parts;
+        return `${d}${m}${y.slice(-2)}`;
+      };
+
+      const uniquePart = Math.floor(Math.random() * 900 + 100).toString();
+      const batchId = `BSI-${formatDateForBatch(item.productionDate)}${formatDateForBatch(item.slaughteringDate)}-${uniquePart}`;
+
       const newChillerEntry: ChillerItem = {
         ...item,
         id: chillerId,
