@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ChillerItem, InflowSource } from '../types';
 import { INFLOW_SOURCES } from '../constants';
 import { 
@@ -16,19 +16,28 @@ import {
   X,
   Layers,
   Zap,
-  Info
+  Search
 } from 'lucide-react';
+import { supabase } from '../lib/supabase';
 
 interface InflowFormProps {
-  // Corrected Omit to exclude batchId which is generated on submission
-  onSubmitBatch: (items: Omit<ChillerItem, 'id' | 'batchId' | 'entryTimestamp' | 'status'>[]) => void;
+  // Fix: Omit itemCode from the items passed to onSubmitBatch to match App.tsx handleInflow signature
+  onSubmitBatch: (items: Omit<ChillerItem, 'id' | 'batchId' | 'entryTimestamp' | 'status' | 'itemCode'>[]) => void;
 }
 
 const InflowForm: React.FC<InflowFormProps> = ({ onSubmitBatch }) => {
   const [isBatchMode, setIsBatchMode] = useState(false);
-  // Corrected state type to match Omit requirements
-  const [draftItems, setDraftItems] = useState<Omit<ChillerItem, 'id' | 'batchId' | 'entryTimestamp' | 'status'>[]>([]);
+  const [availableItems, setAvailableItems] = useState<{id: string, code: string, description: string}[]>([]);
+  // Fix: Omit itemCode from draftItems state to match formData structure and onSubmitBatch prop
+  const [draftItems, setDraftItems] = useState<Omit<ChillerItem, 'id' | 'batchId' | 'entryTimestamp' | 'status' | 'itemCode'>[]>([]);
+  
+  // Searchable Dropdown States
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
   const [formData, setFormData] = useState({
+    itemsId: '', // UUID from items table
     itemName: '',
     pcs: 0,
     kgs: 0,
@@ -38,18 +47,50 @@ const InflowForm: React.FC<InflowFormProps> = ({ onSubmitBatch }) => {
     isWIP: false
   });
 
+  useEffect(() => {
+    fetchItems();
+    
+    // Click outside listener for dropdown
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const fetchItems = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('items')
+        .select('id, code, description')
+        .order('code', { ascending: true });
+        
+      if (error) {
+        console.error("Supabase Error (Table items):", error.message);
+      } else if (data) {
+        setAvailableItems(data);
+      }
+    } catch (err) {
+      console.error("Connection Error:", err);
+    }
+  };
+
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.itemName || formData.pcs <= 0 || formData.kgs <= 0) {
-      alert('Mohon lengkapi data item dengan valid.');
+    if (!formData.itemsId || formData.pcs <= 0 || formData.kgs <= 0) {
+      alert('Mohon pilih produk dan isi kuantitas dengan benar.');
       return;
     }
 
     if (isBatchMode) {
-      // Form data satisfies the required fields after Omit
+      // Fix: the setDraftItems now correctly matches the type that omits itemCode
       setDraftItems(prev => [...prev, { ...formData }]);
-      setFormData(prev => ({ ...prev, itemName: '', pcs: 0, kgs: 0, isWIP: false }));
+      setFormData(prev => ({ ...prev, itemsId: '', itemName: '', pcs: 0, kgs: 0, isWIP: false }));
+      setSearchQuery('');
     } else {
+      // Fix: the onSubmitBatch now correctly matches the type that omits itemCode
       onSubmitBatch([{ ...formData }]);
     }
   };
@@ -64,6 +105,11 @@ const InflowForm: React.FC<InflowFormProps> = ({ onSubmitBatch }) => {
     setDraftItems([]);
   };
 
+  const filteredDropdownItems = availableItems.filter(item => 
+    item.code.toLowerCase().includes(searchQuery.toLowerCase()) || 
+    item.description.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-in slide-in-from-bottom duration-500">
       <div className={`${isBatchMode ? 'lg:col-span-5' : 'lg:col-span-8 lg:col-start-3'} space-y-6 transition-all duration-300`}>
@@ -75,6 +121,7 @@ const InflowForm: React.FC<InflowFormProps> = ({ onSubmitBatch }) => {
 
           <div className="inline-flex bg-gray-200 p-1 rounded-xl self-start md:self-center">
             <button
+              type="button"
               onClick={() => setIsBatchMode(false)}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-black transition-all ${!isBatchMode ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
             >
@@ -82,6 +129,7 @@ const InflowForm: React.FC<InflowFormProps> = ({ onSubmitBatch }) => {
               SINGLE
             </button>
             <button
+              type="button"
               onClick={() => setIsBatchMode(true)}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-black transition-all ${isBatchMode ? 'bg-red-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
             >
@@ -93,30 +141,75 @@ const InflowForm: React.FC<InflowFormProps> = ({ onSubmitBatch }) => {
 
         <form onSubmit={handleFormSubmit} className="bg-white p-6 md:p-8 rounded-3xl shadow-xl border border-gray-100 space-y-6">
           <div className="space-y-4">
-            <div className="flex items-center justify-between gap-4">
-              <div className="space-y-1 flex-1">
+            <div className="flex flex-col gap-4">
+              <div className="space-y-1 flex-1 relative" ref={dropdownRef}>
                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
                   <Package2 size={14} className="text-red-600" />
-                  Nama Produk
+                  Nama Produk (Code)
                 </label>
-                <input
-                  type="text"
-                  required
-                  className="w-full bg-gray-50 border-2 border-gray-100 rounded-xl px-4 py-3 focus:ring-4 focus:ring-red-100 focus:border-red-600 transition-all outline-none font-bold"
-                  placeholder="Ex: Paha Atas Marinasi"
-                  value={formData.itemName}
-                  onChange={(e) => setFormData(prev => ({ ...prev, itemName: e.target.value }))}
-                />
+                
+                {/* Custom Searchable Dropdown */}
+                <div className="relative">
+                  <div 
+                    onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                    className={`w-full bg-gray-50 border-2 rounded-xl px-4 py-3 transition-all outline-none font-bold cursor-pointer flex items-center justify-between ${isDropdownOpen ? 'border-red-600 ring-4 ring-red-100' : 'border-gray-100'}`}
+                  >
+                    <span className={formData.itemsId ? 'text-gray-800' : 'text-gray-400'}>
+                      {formData.itemsId 
+                        ? availableItems.find(i => i.id === formData.itemsId)?.description || 'Terpilih'
+                        : 'Pilih Produk...'}
+                    </span>
+                    <ChevronDown className={`text-gray-400 transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`} size={18} />
+                  </div>
+
+                  {isDropdownOpen && (
+                    <div className="absolute z-50 mt-2 w-full bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+                      <div className="p-3 border-b border-gray-50">
+                        <div className="relative">
+                          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                          <input 
+                            autoFocus
+                            type="text"
+                            placeholder="Cari kode atau nama..."
+                            className="w-full pl-9 pr-4 py-2 bg-gray-50 border-none rounded-lg text-xs font-bold focus:ring-2 focus:ring-red-500 outline-none"
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                          />
+                        </div>
+                      </div>
+                      <div className="max-h-60 overflow-y-auto">
+                        {filteredDropdownItems.length > 0 ? (
+                          filteredDropdownItems.map(item => (
+                            <div 
+                              key={item.id}
+                              onClick={() => {
+                                setFormData(prev => ({ ...prev, itemsId: item.id, itemName: item.description }));
+                                setIsDropdownOpen(false);
+                                setSearchQuery('');
+                              }}
+                              className={`px-4 py-3 hover:bg-red-50 cursor-pointer transition-colors flex flex-col ${formData.itemsId === item.id ? 'bg-red-50' : ''}`}
+                            >
+                              <span className="text-[10px] font-black text-red-600 uppercase tracking-widest">{item.code}</span>
+                              <span className="text-xs font-bold text-gray-800">{item.description}</span>
+                            </div>
+                          ))
+                        ) : (
+                          <div className="px-4 py-6 text-center text-gray-400 text-[10px] font-black uppercase">Produk tidak ditemukan</div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
-              <div className="pt-5">
-                <label className="flex items-center gap-2 cursor-pointer bg-gray-50 px-4 py-3 rounded-xl border-2 border-gray-100 select-none hover:bg-gray-100 transition-colors">
+              <div className="flex items-center">
+                <label className="flex items-center gap-2 cursor-pointer bg-gray-50 px-4 py-3 rounded-xl border-2 border-gray-100 select-none hover:bg-gray-100 transition-colors w-full">
                   <input
                     type="checkbox"
                     className="w-4 h-4 text-red-600 rounded focus:ring-red-500"
                     checked={formData.isWIP}
                     onChange={(e) => setFormData(prev => ({ ...prev, isWIP: e.target.checked }))}
                   />
-                  <span className="text-xs font-black text-gray-700 uppercase">WIP</span>
+                  <span className="text-xs font-black text-gray-700 uppercase">WIP (Work In Progress)</span>
                 </label>
               </div>
             </div>

@@ -1,6 +1,6 @@
 
-import React from 'react';
-import { ChillerItem, ViewState } from '../types';
+import React, { useMemo } from 'react';
+import { ChillerItem, ViewState, Transaction } from '../types';
 import { 
   Package, 
   ArrowDownToLine, 
@@ -18,47 +18,54 @@ import {
   CartesianGrid, 
   Tooltip, 
   ResponsiveContainer, 
-  Cell 
 } from 'recharts';
 
 interface DashboardProps {
   items: ChillerItem[];
+  transactions: Transaction[];
   onNavigate: (view: ViewState) => void;
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ items, onNavigate }) => {
+const Dashboard: React.FC<DashboardProps> = ({ items, transactions, onNavigate }) => {
   const inChiller = items.filter(i => i.status === 'IN_CHILLER');
-  const totalInToday = items.filter(i => {
+  const totalInToday = transactions.filter(t => {
     const today = new Date().toDateString();
-    return new Date(i.entryTimestamp).toDateString() === today;
+    return t.type === 'IN' && new Date(t.timestamp).toDateString() === today;
   }).length;
-  const totalOutToday = items.filter(i => {
+  const totalOutToday = transactions.filter(t => {
     const today = new Date().toDateString();
-    return i.exitTimestamp && new Date(i.exitTimestamp).toDateString() === today;
+    return t.type === 'OUT' && new Date(t.timestamp).toDateString() === today;
   }).length;
 
   const totalWeight = inChiller.reduce((sum, i) => sum + i.kgs, 0);
 
-  // Grouping for chart
-  const last7Days = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
-    return d.toLocaleDateString('id-ID', { weekday: 'short' });
-  }).reverse();
+  // Grouping for real-time chart
+  const chartData = useMemo(() => {
+    const result = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const dateStr = d.toDateString();
+      const label = d.toLocaleDateString('id-ID', { weekday: 'short' });
 
-  const chartData = last7Days.map(day => {
-    return {
-      name: day,
-      in: Math.floor(Math.random() * 50) + 10, // Mock for visual
-      out: Math.floor(Math.random() * 40) + 5
-    };
-  });
+      const dayIn = transactions.filter(t =>
+        t.type === 'IN' && new Date(t.timestamp).toDateString() === dateStr
+      ).length;
+
+      const dayOut = transactions.filter(t =>
+        t.type === 'OUT' && new Date(t.timestamp).toDateString() === dateStr
+      ).length;
+
+      result.push({ name: label, in: dayIn, out: dayOut });
+    }
+    return result;
+  }, [transactions]);
 
   const stats = [
     { label: 'Stok Saat Ini', value: inChiller.length, sub: `${totalWeight.toFixed(1)} Kgs`, icon: Package, color: 'bg-red-500' },
     { label: 'Masuk Hari Ini', value: totalInToday, sub: 'Items', icon: ArrowDownToLine, color: 'bg-green-500' },
     { label: 'Keluar Hari Ini', value: totalOutToday, sub: 'Items', icon: ArrowUpFromLine, color: 'bg-blue-500' },
-    { label: 'Total Transaksi', value: items.length, sub: 'All Time', icon: Clock, color: 'bg-amber-500' },
+    { label: 'Total Transaksi', value: transactions.length, sub: 'All Time', icon: Clock, color: 'bg-amber-500' },
   ];
 
   return (
@@ -91,7 +98,7 @@ const Dashboard: React.FC<DashboardProps> = ({ items, onNavigate }) => {
           <div className="flex items-center justify-between mb-8">
             <div>
               <h3 className="text-lg font-bold text-gray-800">Tren Pergerakan Barang</h3>
-              <p className="text-sm text-gray-500">Aktivitas masuk & keluar 7 hari terakhir</p>
+              <p className="text-sm text-gray-500">Aktivitas masuk & keluar 7 hari terakhir (Real-time)</p>
             </div>
           </div>
           <div className="h-[300px]">

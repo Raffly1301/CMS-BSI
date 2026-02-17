@@ -20,6 +20,7 @@ import InventoryList from './components/InventoryList';
 import Reports from './components/Reports';
 import DailyStockReport from './components/DailyStockReport';
 import LoginForm from './components/LoginForm';
+import { supabase } from './lib/supabase';
 
 const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
@@ -32,36 +33,109 @@ const App: React.FC = () => {
   });
 
   const [activeView, setActiveView] = useState<ViewState>('DASHBOARD');
-  const [sidebarOpen, setSidebarOpen] = useState(false); // Untuk Mobile Drawer (Kanan)
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false); // Untuk Desktop/Tablet
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Database Tables (Mock)
-  const [chillerTable, setChillerTable] = useState<ChillerItem[]>(() => {
-    const saved = localStorage.getItem('bsi_chiller_table');
-    return saved ? JSON.parse(saved) : [];
-  });
-  const [transactionTable, setTransactionTable] = useState<Transaction[]>(() => {
-    const saved = localStorage.getItem('bsi_transaction_table');
-    return saved ? JSON.parse(saved) : [];
-  });
-  const [logTable, setLogTable] = useState<SystemLog[]>(() => {
-    const saved = localStorage.getItem('bsi_log_table');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [chillerTable, setChillerTable] = useState<ChillerItem[]>([]);
+  const [transactionTable, setTransactionTable] = useState<Transaction[]>([]);
+  const [logTable, setLogTable] = useState<SystemLog[]>([]);
 
   useEffect(() => {
-    localStorage.setItem('bsi_chiller_table', JSON.stringify(chillerTable));
-    localStorage.setItem('bsi_transaction_table', JSON.stringify(transactionTable));
-    localStorage.setItem('bsi_log_table', JSON.stringify(logTable));
-  }, [chillerTable, transactionTable, logTable]);
+    if (isAuthenticated) {
+      fetchData();
+    }
+  }, [isAuthenticated]);
 
-  const generateId = (prefix: string) => `${prefix}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
+  const fetchData = async () => {
+    setIsLoading(true);
+    try {
+      // 1. Fetch Items for client-side lookup
+      const { data: itemsData } = await supabase.from('items').select('id, code, description');
+      const itemsLookup: Record<string, string> = {};
+      const itemsCodeLookup: Record<string, string> = {};
+      if (itemsData) {
+        itemsData.forEach(item => { 
+          itemsLookup[item.id] = item.description; 
+          itemsCodeLookup[item.id] = item.code;
+        });
+      }
+
+      // 2. Fetch Users for resolving UUIDs to usernames in UI
+      const { data: usersData } = await supabase.from('users').select('id, username');
+      const usersLookup: Record<string, string> = {};
+      if (usersData) usersData.forEach(u => { usersLookup[u.id] = u.username; });
+
+      // 3. Fetch Chiller Stock
+      const { data: stockData, error: stockError } = await supabase
+        .from('chiller_stock')
+        .select('*')
+        .order('created_at', { ascending: false });
+      
+      if (stockError) throw stockError;
+      
+      const mappedStock: ChillerItem[] = (stockData || []).map(item => ({
+        id: String(item.batch_id),
+        batchId: item.batch_id,
+        itemsId: item.items_id,
+        itemCode: itemsCodeLookup[item.items_id] || 'N/A',
+        itemName: itemsLookup[item.items_id] || item.items_id,
+        pcs: Number(item.quantity_pcs),
+        kgs: Number(item.quantity_kgs),
+        productionDate: item.production_date,
+        slaughteringDate: item.slaughtering_date,
+        source: item.source || 'FPS',
+        entryTimestamp: new Date(item.created_at).getTime(),
+        status: (
+          item.status === 'OUT' || item.status === 'OUT_CHILLER' ? 'OUT_CHILLER' : 
+          item.status === 'PENDING' || item.status === 'QC_PENDING' ? 'PENDING_QC' : 
+          'IN_CHILLER'
+        ),
+        isWIP: item.status_WIP === true || item.status_WIP === 'true'
+      }));
+
+      // 4. Fetch Transactions
+      const { data: trxData, error: trxError } = await supabase
+        .from('transactions')
+        .select('*')
+        .order('transaction_time', { ascending: false });
+      
+      if (trxError) throw trxError;
+
+      const mappedTrx: Transaction[] = (trxData || []).map(item => ({
+        id: String(item.id || Math.random()),
+        chillerId: String(item.batch_id || item.note || 'N/A'),
+        userId: usersLookup[item.user_id] || item.user_id,
+        type: item.transaction_type as any,
+        destination: item.destination as OutflowDestination,
+        pcs: Number(item.quantity_pcs),
+        kgs: Number(item.quantity_kgs),
+        timestamp: new Date(item.transaction_time).getTime()
+      }));
+
+      setChillerTable(mappedStock);
+      setTransactionTable(mappedTrx);
+      
+      setLogTable(mappedTrx.map(t => ({
+        id: `LOG-${t.id}`,
+        userId: t.userId,
+        action: t.type,
+        details: `Transaksi ${t.type} untuk Batch ${t.chillerId} ke ${t.destination || 'Chiller'}`,
+        timestamp: t.timestamp
+      })));
+    } catch (err) {
+      console.error("Supabase Sync Error:", err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleLogin = (userData: User) => {
     setIsAuthenticated(true);
     setUser(userData);
     localStorage.setItem('bsi_auth', 'true');
     localStorage.setItem('bsi_user', JSON.stringify(userData));
+    fetchData();
   };
 
   const handleLogout = () => {
@@ -71,11 +145,10 @@ const App: React.FC = () => {
     localStorage.removeItem('bsi_user');
   };
 
-  const handleInflow = (newItems: Omit<ChillerItem, 'id' | 'batchId' | 'entryTimestamp' | 'status'>[]) => {
+  const handleInflow = async (newItems: Omit<ChillerItem, 'id' | 'batchId' | 'entryTimestamp' | 'status' | 'itemCode'>[]) => {
     if (!user) return;
-    newItems.forEach(item => {
-      const chillerId = generateId('CHL');
-      
+    
+    for (const item of newItems) {
       const formatDateForBatch = (dateStr: string) => {
         const parts = dateStr.split('-');
         if (parts.length !== 3) return "000000";
@@ -86,83 +159,96 @@ const App: React.FC = () => {
       const uniquePart = Math.floor(Math.random() * 900 + 100).toString();
       const batchId = `BSI-${formatDateForBatch(item.productionDate)}${formatDateForBatch(item.slaughteringDate)}-${uniquePart}`;
 
-      const newChillerEntry: ChillerItem = {
-        ...item,
-        id: chillerId,
-        batchId,
-        entryTimestamp: Date.now(),
-        status: 'IN_CHILLER'
-      };
-      const newTransaction: Transaction = {
-        id: generateId('TRX'),
-        chillerId,
-        userId: user.id,
-        type: 'IN',
-        pcs: item.pcs,
-        kgs: item.kgs,
-        timestamp: Date.now()
-      };
-      setChillerTable(prev => [newChillerEntry, ...prev]);
-      setTransactionTable(prev => [newTransaction, ...prev]);
-    });
+      try {
+        const payload = {
+          batch_id: batchId,
+          items_id: item.itemsId, 
+          quantity_pcs: item.pcs,
+          quantity_kgs: item.kgs,
+          production_date: item.productionDate,
+          slaughtering_date: item.slaughteringDate,
+          status: 'IN',
+          created_by: user.id, 
+          source: item.source,
+          status_WIP: item.isWIP || false
+        };
+
+        const { error: stockError } = await supabase
+          .from('chiller_stock')
+          .insert(payload);
+
+        if (stockError) throw stockError;
+
+        await supabase.from('transactions').insert({
+          destination: 'Chiller',
+          quantity_pcs: item.pcs,
+          quantity_kgs: item.kgs,
+          transaction_type: 'IN',
+          user_id: user.id,
+          transaction_time: new Date().toISOString(),
+          note: batchId
+        });
+
+      } catch (err) {
+        console.error("Supabase Insert Error:", err);
+        const errorMsg = err instanceof Error ? err.message : JSON.stringify(err);
+        if (errorMsg.includes('status_check')) {
+           alert("DATABASE ERROR: Constraint 'status' di database memblokir nilai 'IN'. Harap jalankan SQL Fix di Supabase Editor.");
+        } else {
+           alert(`Gagal menyimpan data. Detail: ${errorMsg}`);
+        }
+      }
+    }
+    fetchData();
     setActiveView('INVENTORY');
   };
 
-  const handleOutflow = (chillerId: string, destination: OutflowDestination, outPcs?: number, outKgs?: number) => {
+  const handleOutflow = async (batchId: string, destination: OutflowDestination, outPcs?: number, outKgs?: number) => {
     if (!user) return;
-    const item = chillerTable.find(i => i.id === chillerId);
+    const item = chillerTable.find(i => i.batchId === batchId);
     if (!item) return;
 
     const actualPcs = outPcs ?? item.pcs;
     const actualKgs = outKgs ?? item.kgs;
-    const isCondem = destination === 'Condem';
-    const isUserRole = user.role === 'USER';
-    const trxType = (isCondem && isUserRole) ? 'QC_PENDING' : 'OUT';
 
-    const newTransaction: Transaction = {
-      id: generateId('TRX'),
-      chillerId,
-      userId: user.id,
-      type: trxType,
-      destination,
-      pcs: actualPcs,
-      kgs: actualKgs,
-      timestamp: Date.now()
-    };
+    try {
+      await supabase.from('transactions').insert({
+        destination: destination,
+        quantity_pcs: actualPcs,
+        quantity_kgs: actualKgs,
+        transaction_type: 'OUT',
+        user_id: user.id,
+        transaction_time: new Date().toISOString(),
+        note: batchId
+      });
 
-    setTransactionTable(prev => [newTransaction, ...prev]);
-
-    if (trxType === 'QC_PENDING') {
-      setChillerTable(prev => prev.map(i => i.id === chillerId ? { ...i, status: 'PENDING_QC' } : i));
-    } else {
       if (actualPcs >= item.pcs) {
-        setChillerTable(prev => prev.map(i => i.id === chillerId ? { ...i, status: 'OUT_CHILLER', exitTimestamp: Date.now() } : i));
+        await supabase.from('chiller_stock').delete().eq('batch_id', batchId);
       } else {
-        setChillerTable(prev => prev.map(i => i.id === chillerId ? { ...i, pcs: i.pcs - actualPcs, kgs: i.kgs - actualKgs } : i));
+        await supabase.from('chiller_stock')
+          .update({ 
+            quantity_pcs: item.pcs - actualPcs, 
+            quantity_kgs: item.kgs - actualKgs 
+          })
+          .eq('batch_id', batchId);
       }
+      fetchData();
+    } catch (err) {
+      console.error("Supabase Outflow Error:", err);
     }
   };
 
-  const handleQCAction = (chillerId: string, action: 'APPROVE' | 'REJECT') => {
+  const handleQCAction = async (batchId: string, action: 'APPROVE' | 'REJECT') => {
     if (!user || user.role !== 'ADMIN') return;
-    const item = chillerTable.find(i => i.id === chillerId);
-    if (!item) return;
-
-    const newTransaction: Transaction = {
-      id: generateId('TRX'),
-      chillerId,
-      userId: user.id,
-      type: action === 'APPROVE' ? 'QC_APPROVED' : 'QC_REJECTED',
-      pcs: item.pcs,
-      kgs: item.kgs,
-      timestamp: Date.now()
-    };
-
-    setTransactionTable(prev => [newTransaction, ...prev]);
-    if (action === 'APPROVE') {
-      setChillerTable(prev => prev.map(i => i.id === chillerId ? { ...i, status: 'OUT_CHILLER', exitTimestamp: Date.now() } : i));
-    } else {
-      setChillerTable(prev => prev.map(i => i.id === chillerId ? { ...i, status: 'IN_CHILLER' } : i));
+    try {
+      await supabase.from('chiller_stock')
+        .update({ 
+          status: action === 'APPROVE' ? 'APPROVED' : 'REJECTED'
+        })
+        .eq('batch_id', batchId);
+      fetchData();
+    } catch (err) {
+      console.error("QC Action Error:", err);
     }
   };
 
@@ -186,7 +272,6 @@ const App: React.FC = () => {
 
     return (
       <>
-        {/* Sidebar Header */}
         <div className={`flex flex-col gap-4 border-b border-white/10 ${isCollapsed ? 'p-2' : 'p-4 md:p-6'}`}>
           <div className={`flex items-center ${isCollapsed ? 'flex-col gap-2' : 'justify-between gap-3'}`}>
             <div className={`flex items-center gap-3 ${isCollapsed ? 'justify-center' : ''}`}>
@@ -203,7 +288,6 @@ const App: React.FC = () => {
           </div>
         </div>
         
-        {/* Navigation Items */}
         <nav className="flex-1 px-2 py-4 space-y-1.5 overflow-y-auto overflow-x-hidden">
           {navigation.map(item => (
             <button 
@@ -221,7 +305,6 @@ const App: React.FC = () => {
           ))}
         </nav>
 
-        {/* User & Logout Section */}
         <div className={`border-t border-white/10 ${isCollapsed ? 'p-2' : 'p-4'}`}>
           <div className={`flex items-center gap-3 px-3 py-3 mb-2 rounded-xl bg-white/5 ${isCollapsed ? 'justify-center' : ''}`}>
             <UserIcon size={20} className="shrink-0" />
@@ -246,7 +329,6 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen flex flex-col md:flex-row bg-gray-50 overflow-hidden">
-      {/* Mobile Header (Menu Button di Kanan) */}
       <header className="md:hidden bg-[#c01e1e] text-white p-4 flex items-center justify-between shadow-md z-50">
         <div className="flex items-center gap-3">
           <img src="/logo2.png" className="w-8 h-8 bg-white p-1 rounded-lg shadow-sm" />
@@ -263,7 +345,6 @@ const App: React.FC = () => {
         </button>
       </header>
 
-      {/* Mobile Backdrop Overlay */}
       {sidebarOpen && (
         <div 
           className="md:hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] animate-in fade-in duration-300" 
@@ -271,22 +352,18 @@ const App: React.FC = () => {
         />
       )}
 
-      {/* Sidebar - Desktop: Left side, Mobile: Right Drawer slide-in */}
       <aside className={`
         fixed inset-y-0 z-[70] md:relative md:flex flex-col bg-[#c01e1e] text-white transition-all duration-300 ease-in-out
         ${sidebarOpen ? 'right-0 translate-x-0 w-64 shadow-2xl' : 'right-0 translate-x-full md:left-0 md:right-auto md:translate-x-0'}
         ${sidebarCollapsed ? 'md:w-20' : 'md:w-64'}
       `}>
-        {/* Tombol Collapse Desktop Melayang (Floating on edge) */}
         <button 
           onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
           className="hidden md:flex absolute -right-4 top-24 w-8 h-8 bg-white text-[#c01e1e] rounded-full items-center justify-center shadow-lg border border-gray-100 hover:scale-110 active:scale-95 transition-all z-[80] group"
-          title={sidebarCollapsed ? "Tampilkan Sidebar" : "Sembunyikan Sidebar"}
         >
           {sidebarCollapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
         </button>
 
-        {/* Close Button Mobile (Top-Left of drawer) */}
         {sidebarOpen && (
           <button 
             onClick={() => setSidebarOpen(false)} 
@@ -298,20 +375,26 @@ const App: React.FC = () => {
         <NavContent />
       </aside>
 
-      {/* Main Content Viewport */}
       <main className="flex-1 h-screen overflow-y-auto p-4 md:p-8 pt-6 md:pt-8 transition-all duration-300">
-        <div className="max-w-7xl mx-auto">
-          {(() => {
-            switch (activeView) {
-              case 'DASHBOARD': return <Dashboard items={chillerTable} onNavigate={setActiveView} />;
-              case 'INFLOW': return <InflowForm onSubmitBatch={handleInflow} />;
-              case 'INVENTORY': return <InventoryList user={user} items={currentInventory} onOut={handleOutflow} onBatchOut={()=>{}} onQCApprove={(id)=>handleQCAction(id,'APPROVE')} onQCReject={(id)=>handleQCAction(id,'REJECT')} />;
-              case 'REPORTS': return <Reports items={chillerTable} transactions={transactionTable} logs={logTable} users={[user!]} />;
-              case 'DAILY_REPORT': return <DailyStockReport items={chillerTable} />;
-              default: return <Dashboard items={chillerTable} onNavigate={setActiveView} />;
-            }
-          })()}
-        </div>
+        {isLoading ? (
+          <div className="h-full flex flex-col items-center justify-center text-gray-400 gap-4">
+             <div className="w-12 h-12 border-4 border-red-100 border-t-red-600 rounded-full animate-spin"></div>
+             <span className="text-xs font-black uppercase tracking-widest">Sinkronisasi Data...</span>
+          </div>
+        ) : (
+          <div className="max-w-7xl mx-auto">
+            {(() => {
+              switch (activeView) {
+                case 'DASHBOARD': return <Dashboard items={chillerTable} transactions={transactionTable} onNavigate={setActiveView} />;
+                case 'INFLOW': return <InflowForm onSubmitBatch={handleInflow} />;
+                case 'INVENTORY': return <InventoryList user={user} items={currentInventory} onOut={handleOutflow} onBatchOut={()=>{}} onQCApprove={(id)=>handleQCAction(id,'APPROVE')} onQCReject={(id)=>handleQCAction(id,'REJECT')} />;
+                case 'REPORTS': return <Reports items={chillerTable} transactions={transactionTable} logs={logTable} users={[user!]} />;
+                case 'DAILY_REPORT': return <DailyStockReport items={chillerTable} />;
+                default: return <Dashboard items={chillerTable} transactions={transactionTable} onNavigate={setActiveView} />;
+              }
+            })()}
+          </div>
+        )}
       </main>
     </div>
   );

@@ -7,8 +7,9 @@ import {
   Table as TableIcon,
   Info,
   ChevronDown,
-  ChevronUp,
-  Search
+  ChevronRight,
+  Search,
+  Hash
 } from 'lucide-react';
 
 interface DailyStockReportProps {
@@ -38,19 +39,17 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items }) => {
   );
   const [unit, setUnit] = useState<'KGS' | 'PCS'>('KGS');
   const [searchTerm, setSearchTerm] = useState('');
+  const [isWIPExpanded, setIsWIPExpanded] = useState(false);
   const reportRef = useRef<HTMLDivElement>(null);
-  const tableRef = useRef<HTMLDivElement>(null);
 
   const reportData = useMemo(() => {
     const startOfDay = new Date(selectedDate).setHours(0, 0, 0, 0);
     const endOfDay = new Date(selectedDate).setHours(23, 59, 59, 999);
 
-    // Added explicit type string[] to itemNames to resolve 'unknown' inference in some TS environments
     const itemNames: string[] = Array.from(new Set(items.map(i => i.itemName)));
     const rows: StockRow[] = [];
 
-    // Separate processing for WIP Total and regular items
-    const processGroup = (name: string, filterFn: (item: ChillerItem) => boolean, label: string, isWIPGroup = false) => {
+    const processGroup = (filterFn: (item: ChillerItem) => boolean, label: string, isWIPGroup = false) => {
       const groupItems = items.filter(filterFn);
       
       const opening = groupItems.filter(i => i.entryTimestamp < startOfDay && (i.status === 'IN_CHILLER' || (i.exitTimestamp && i.exitTimestamp >= startOfDay)));
@@ -60,7 +59,6 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items }) => {
 
       const sum = (arr: ChillerItem[], key: 'kgs' | 'pcs') => arr.reduce((acc, curr) => acc + (curr[key] || 0), 0);
 
-      // Return object conforming to StockRow interface
       return {
         name: label,
         openingKgs: sum(opening, 'kgs'),
@@ -76,11 +74,11 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items }) => {
     };
 
     // Add WIP Overall Row
-    rows.push(processGroup('WIP', i => !!i.isWIP, 'TOTAL WIP', true));
+    rows.push(processGroup(i => !!i.isWIP, 'TOTAL WIP', true));
 
-    // Add Individual Items Row (Non-WIP) - added explicit type for 'name' to fix argument passing error
+    // Add Individual Items Row (Non-WIP)
     itemNames.forEach((name: string) => {
-      const row = processGroup(name, i => i.itemName === name && !i.isWIP, name);
+      const row = processGroup(i => i.itemName === name && !i.isWIP, name);
       if (row.openingKgs > 0 || row.inKgs > 0 || row.outKgs > 0) {
         rows.push(row);
       }
@@ -88,6 +86,23 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items }) => {
 
     return rows;
   }, [items, selectedDate]);
+
+  // Secondary useMemo to get WIP batch breakdown when expanded
+  const wipBreakdown = useMemo(() => {
+    if (!isWIPExpanded) return [];
+    
+    const startOfDay = new Date(selectedDate).setHours(0, 0, 0, 0);
+    const endOfDay = new Date(selectedDate).setHours(23, 59, 59, 999);
+    
+    const wipItems = items.filter(i => !!i.isWIP);
+    
+    return wipItems.filter(i => {
+        const inStockStart = i.entryTimestamp < startOfDay && (i.status === 'IN_CHILLER' || (i.exitTimestamp && i.exitTimestamp >= startOfDay));
+        const movedIn = i.entryTimestamp >= startOfDay && i.entryTimestamp <= endOfDay;
+        const movedOut = i.status === 'OUT_CHILLER' && i.exitTimestamp && i.exitTimestamp >= startOfDay && i.exitTimestamp <= endOfDay;
+        return inStockStart || movedIn || movedOut;
+    });
+  }, [items, selectedDate, isWIPExpanded]);
 
   const filteredData = reportData.filter(row => 
     row.name.toLowerCase().includes(searchTerm.toLowerCase())
@@ -110,9 +125,6 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items }) => {
   };
 
   const downloadPDF = () => {
-    if (!reportRef.current) return;
-    
-    // We target the report-content container which we will structure below
     const element = document.getElementById('report-export-area');
     if (!element) return;
 
@@ -172,7 +184,6 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items }) => {
         </div>
       </header>
 
-      {/* Main Report Table Container */}
       <div className="bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden" ref={reportRef}>
         <div className="p-4 border-b border-gray-50 flex items-center justify-between gap-4 print:hidden">
           <div className="relative flex-1 max-w-xs">
@@ -190,9 +201,7 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items }) => {
           </div>
         </div>
 
-        {/* This ID is used for PDF generation to get a clean layout */}
         <div id="report-export-area" className="p-2 md:p-4 bg-white">
-          {/* Internal PDF Header - Only visible in PDF/Print */}
           <div className="hidden print:block mb-6 border-b-2 border-red-600 pb-4">
              <div className="flex justify-between items-end">
                 <div>
@@ -218,55 +227,70 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items }) => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {filteredData.map((row, idx) => (
-                  <tr 
-                    key={idx} 
-                    className={`
-                      hover:bg-gray-50/50 transition-colors 
-                      ${row.isWIPGroup ? 'bg-amber-50/30' : ''}
-                    `}
-                  >
-                    <td className="px-6 py-2">
-                      <div className="flex items-center gap-3">
-                        <div className={`w-1 h-6 rounded-full ${row.isWIPGroup ? 'bg-amber-400' : 'bg-red-500'}`} />
-                        <div className="leading-tight">
-                          <div className={`text-[11px] font-black uppercase ${row.isWIPGroup ? 'text-amber-800' : 'text-gray-900'}`}>
-                            {row.name}
+                {filteredData.map((row, idx) => {
+                  const isWIPRow = row.isWIPGroup;
+                  return (
+                    <React.Fragment key={idx}>
+                      <tr 
+                        onClick={() => isWIPRow && setIsWIPExpanded(!isWIPExpanded)}
+                        className={`
+                          hover:bg-gray-50 transition-colors 
+                          ${isWIPRow ? 'bg-amber-50/40 cursor-pointer group' : ''}
+                        `}
+                      >
+                        <td className="px-6 py-2">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-1 h-6 rounded-full ${isWIPRow ? 'bg-amber-500' : 'bg-red-500'}`} />
+                            <div className="leading-tight">
+                              <div className={`text-[11px] font-black uppercase flex items-center gap-2 ${isWIPRow ? 'text-amber-800' : 'text-gray-900'}`}>
+                                {isWIPRow && (isWIPExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />)}
+                                {row.name}
+                              </div>
+                              {isWIPRow && <div className="text-[8px] font-bold text-amber-600 tracking-tight uppercase leading-none mt-0.5">Klik untuk detail barang WIP</div>}
+                            </div>
                           </div>
-                          {row.isWIPGroup && <div className="text-[8px] font-bold text-amber-600 tracking-tight uppercase leading-none">Semua Barang WIP</div>}
-                        </div>
-                      </div>
-                    </td>
-                    
-                    <td className="px-4 py-2 text-right">
-                      <span className="text-[11px] font-bold text-gray-600">
-                        {unit === 'KGS' ? row.openingKgs.toFixed(2) : row.openingPcs}
-                      </span>
-                    </td>
+                        </td>
+                        <td className="px-4 py-2 text-right"><span className="text-[11px] font-bold text-gray-600">{unit === 'KGS' ? row.openingKgs.toFixed(2) : row.openingPcs}</span></td>
+                        <td className="px-4 py-2 text-right"><span className="text-[11px] font-black text-green-600">{unit === 'KGS' ? row.inKgs.toFixed(2) : row.inPcs}</span></td>
+                        <td className="px-4 py-2 text-right"><span className="text-[11px] font-black text-blue-600">{unit === 'KGS' ? row.outKgs.toFixed(2) : row.outPcs}</span></td>
+                        <td className="px-6 py-2 text-right bg-red-50/10"><span className="text-[11px] font-black text-red-700">{unit === 'KGS' ? row.endingKgs.toFixed(2) : row.endingPcs}</span></td>
+                      </tr>
 
-                    <td className="px-4 py-2 text-right">
-                      <div className="flex items-center justify-end gap-1.5 text-green-600">
-                        <span className="text-[11px] font-black">
-                          {unit === 'KGS' ? row.inKgs.toFixed(2) : row.inPcs}
-                        </span>
-                      </div>
-                    </td>
+                      {isWIPRow && isWIPExpanded && wipBreakdown.map((batch, bIdx) => {
+                        const startOfDay = new Date(selectedDate).setHours(0, 0, 0, 0);
+                        const endOfDay = new Date(selectedDate).setHours(23, 59, 59, 999);
+                        
+                        const opK = (batch.entryTimestamp < startOfDay && (batch.status === 'IN_CHILLER' || (batch.exitTimestamp && batch.exitTimestamp >= startOfDay))) ? batch.kgs : 0;
+                        const opP = (batch.entryTimestamp < startOfDay && (batch.status === 'IN_CHILLER' || (batch.exitTimestamp && batch.exitTimestamp >= startOfDay))) ? batch.pcs : 0;
+                        
+                        const inK = (batch.entryTimestamp >= startOfDay && batch.entryTimestamp <= endOfDay) ? batch.kgs : 0;
+                        const inP = (batch.entryTimestamp >= startOfDay && batch.entryTimestamp <= endOfDay) ? batch.pcs : 0;
+                        
+                        const outK = (batch.status === 'OUT_CHILLER' && batch.exitTimestamp && batch.exitTimestamp >= startOfDay && batch.exitTimestamp <= endOfDay) ? batch.kgs : 0;
+                        const outP = (batch.status === 'OUT_CHILLER' && batch.exitTimestamp && batch.exitTimestamp >= startOfDay && batch.exitTimestamp <= endOfDay) ? batch.pcs : 0;
+                        
+                        const edK = (batch.entryTimestamp <= endOfDay && (batch.status === 'IN_CHILLER' || (batch.exitTimestamp && batch.exitTimestamp > endOfDay))) ? batch.kgs : 0;
+                        const edP = (batch.entryTimestamp <= endOfDay && (batch.status === 'IN_CHILLER' || (batch.exitTimestamp && batch.exitTimestamp > endOfDay))) ? batch.pcs : 0;
 
-                    <td className="px-4 py-2 text-right">
-                      <div className="flex items-center justify-end gap-1.5 text-blue-600">
-                        <span className="text-[11px] font-black">
-                          {unit === 'KGS' ? row.outKgs.toFixed(2) : row.outPcs}
-                        </span>
-                      </div>
-                    </td>
-
-                    <td className="px-6 py-2 text-right bg-red-50/10">
-                      <span className="text-[11px] font-black text-red-700">
-                        {unit === 'KGS' ? row.endingKgs.toFixed(2) : row.endingPcs}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
+                        return (
+                          <tr key={`wip-batch-${bIdx}`} className="bg-amber-50/10 animate-in slide-in-from-top-1 duration-200">
+                            <td className="px-6 py-1.5 pl-12 border-l-2 border-amber-400">
+                              <div className="flex flex-col">
+                                <span className="text-[9px] font-black text-amber-800 uppercase flex items-center gap-1"><Hash size={10} /> {batch.batchId}</span>
+                                <span className="text-[8px] font-bold text-gray-500 uppercase">{batch.itemName}</span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-1.5 text-right"><span className="text-[10px] font-medium text-gray-500">{unit === 'KGS' ? opK.toFixed(2) : opP}</span></td>
+                            <td className="px-4 py-1.5 text-right"><span className="text-[10px] font-bold text-green-500">{unit === 'KGS' ? inK.toFixed(2) : inP}</span></td>
+                            {/* Fix: use outK instead of outKgs to refer to the local variable calculated above */}
+                            <td className="px-4 py-1.5 text-right"><span className="text-[10px] font-bold text-blue-500">{unit === 'KGS' ? outK.toFixed(2) : outP}</span></td>
+                            <td className="px-6 py-1.5 text-right bg-red-50/5"><span className="text-[10px] font-black text-red-500/70">{unit === 'KGS' ? edK.toFixed(2) : edP}</span></td>
+                          </tr>
+                        );
+                      })}
+                    </React.Fragment>
+                  );
+                })}
               </tbody>
               {filteredData.length > 0 && (
                 <tfoot className="bg-gray-900 text-white">
@@ -290,7 +314,6 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items }) => {
             </table>
           </div>
           
-          {/* Footer for PDF Only */}
           <div className="hidden print:block mt-12">
              <div className="flex justify-between">
                 <div className="text-center w-40 border-t border-gray-300 pt-2">

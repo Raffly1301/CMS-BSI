@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { User } from '../types';
 import { Lock, User as UserIcon, LogIn, AlertCircle, Loader2, Eye, EyeOff } from 'lucide-react';
+import { supabase } from '../lib/supabase';
 
 interface LoginFormProps {
   onLogin: (user: User) => void;
@@ -14,21 +15,35 @@ const LoginForm: React.FC<LoginFormProps> = ({ onLogin }) => {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setIsLoading(true);
 
-    setTimeout(() => {
-      if (username === 'admin' && password === 'admin') {
-        onLogin({ id: 'USR-ADM01', username: 'admin', role: 'ADMIN', fullName: 'System Administrator' });
-      } else if (username === 'user' && password === 'user') {
-        onLogin({ id: 'USR-STAFF01', username: 'user', role: 'USER', fullName: 'Staff Produksi' });
-      } else {
+    try {
+      const { data, error: dbError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('username', username)
+        .eq('password', password)
+        .single();
+
+      if (dbError || !data) {
         setError('Username atau password salah.');
-        setIsLoading(false);
+      } else {
+        // FIX: Gunakan data.id (UUID) sebagai ID, bukan data.username
+        onLogin({ 
+          id: data.id, 
+          username: data.username, 
+          role: data.role as 'ADMIN' | 'USER', 
+          fullName: data.username.toUpperCase() 
+        });
       }
-    }, 1000);
+    } catch (err) {
+      setError('Terjadi kesalahan koneksi database.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (

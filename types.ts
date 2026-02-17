@@ -22,25 +22,26 @@ export interface User {
 }
 
 export interface ChillerItem {
-  id: string; // Primary Key for Chiller table
-  batchId: string; // The "BSI-XXXX" visible ID
-  itemName: string;
-  pcs: number;
-  kgs: number;
-  productionDate: string;
-  slaughteringDate: string;
-  source: InflowSource;
-  entryTimestamp: number;
-  // Added exitTimestamp to fix missing property errors in Dashboard and Reports
+  id: string; // Internal database ID or PK
+  batchId: string; // batch_id from DB
+  itemsId: string; // items_id (UUID) from DB
+  itemCode: string; // item code from items table
+  itemName: string; // Display name (derived from items_id or description)
+  pcs: number; // quantity_pcs
+  kgs: number; // quantity_kgs
+  productionDate: string; // production_date
+  slaughteringDate: string; // slaughtering_date
+  source: InflowSource; // source
+  entryTimestamp: number; // derived from created_at
   exitTimestamp?: number; 
   status: 'IN_CHILLER' | 'OUT_CHILLER' | 'PENDING_QC';
-  isWIP?: boolean;
+  isWIP?: boolean; // status_WIP
 }
 
 export interface Transaction {
-  id: string; // Primary Key for Transaction table
-  chillerId: string; // Foreign Key to Chiller
-  userId: string; // Foreign Key to Profile
+  id: string; 
+  chillerId: string; 
+  userId: string; 
   type: 'IN' | 'OUT' | 'QC_PENDING' | 'QC_APPROVED' | 'QC_REJECTED';
   destination?: OutflowDestination;
   pcs: number;
@@ -49,9 +50,9 @@ export interface Transaction {
 }
 
 export interface SystemLog {
-  id: string; // Primary Key for Log table
-  transactionId?: string; // Foreign Key to Transaction (Connects Log to Transaction)
-  userId: string; // Who did it
+  id: string; 
+  transactionId?: string; 
+  userId: string; 
   action: string;
   details: string;
   timestamp: number;

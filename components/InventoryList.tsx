@@ -57,6 +57,7 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
     return items.filter(i => {
       const matchesSearch = 
         i.itemName.toLowerCase().includes(searchTerm.toLowerCase()) || 
+        i.itemCode.toLowerCase().includes(searchTerm.toLowerCase()) || 
         i.source.toLowerCase().includes(searchTerm.toLowerCase()) ||
         i.batchId.toLowerCase().includes(searchTerm.toLowerCase()) ||
         i.id.toLowerCase().includes(searchTerm.toLowerCase());
@@ -90,7 +91,6 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
   };
 
   const toggleSelection = (id: string) => {
-    // Cannot batch select items pending QC
     const item = items.find(i => i.id === id);
     if (item?.status === 'PENDING_QC') return;
 
@@ -200,7 +200,8 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
                 
                 <div className="flex flex-col md:flex-row md:items-center gap-3 md:gap-4 flex-1">
                   <div className="flex-1 min-w-0">
-                    <h3 className="text-base md:text-sm font-black text-gray-800 truncate uppercase mb-1">{item.itemName}</h3>
+                    <h3 className="text-base md:text-sm font-black text-gray-800 truncate uppercase mb-1">{item.itemCode}</h3>
+                    <div className="text-[10px] font-bold text-gray-500 truncate mb-2">{item.itemName}</div>
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                       <div className="flex items-center gap-1"><span className="text-[8px] font-black text-gray-400 uppercase">PD:</span><span className="text-[9px] font-bold text-gray-600">{item.productionDate}</span></div>
                       <div className="flex items-center gap-1"><span className="text-[8px] font-black text-gray-400 uppercase">SD:</span><span className="text-[9px] font-bold text-gray-600">{item.slaughteringDate}</span></div>
@@ -267,7 +268,8 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
                   <div className="bg-gray-50 p-4 rounded-xl mb-6 border border-gray-100">
                     {selectedItemForSingleOut && (
                       <div className="space-y-3">
-                        <p className="text-base font-black text-red-600 uppercase leading-tight">{selectedItemForSingleOut.itemName}</p>
+                        <p className="text-base font-black text-red-600 uppercase leading-tight">{selectedItemForSingleOut.itemCode}</p>
+                        <p className="text-[10px] font-bold text-gray-500 uppercase">{selectedItemForSingleOut.itemName}</p>
                         <div className="grid grid-cols-2 gap-3">
                           <div className="space-y-1"><label className="text-[8px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1"><Calculator size={10} /> Qty Keluar</label><input type="number" className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-xs font-black outline-none focus:border-red-600" value={outPcs} onChange={(e) => setOutPcs(parseInt(e.target.value) || 0)} /></div>
                           <div className="space-y-1"><label className="text-[8px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1"><Scale size={10} /> Berat Keluar</label><input type="number" step="0.01" className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-xs font-black outline-none focus:border-red-600" value={outKgs} onChange={(e) => setOutKgs(parseFloat(e.target.value) || 0)} /></div>
