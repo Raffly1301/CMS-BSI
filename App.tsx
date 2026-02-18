@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   LayoutDashboard, 
   ArrowDownToLine, 
@@ -41,14 +41,8 @@ const App: React.FC = () => {
   const [transactionTable, setTransactionTable] = useState<Transaction[]>([]);
   const [logTable, setLogTable] = useState<SystemLog[]>([]);
 
-  useEffect(() => {
-    if (isAuthenticated) {
-      fetchData();
-    }
-  }, [isAuthenticated]);
-
-  const fetchData = async () => {
-    setIsLoading(true);
+  const fetchData = useCallback(async (silent = false) => {
+    if (!silent) setIsLoading(true);
     try {
       // 1. Fetch Items for client-side lookup
       const { data: itemsData } = await supabase.from('items').select('id, code, description');
@@ -126,9 +120,35 @@ const App: React.FC = () => {
     } catch (err) {
       console.error("Supabase Sync Error:", err);
     } finally {
-      setIsLoading(false);
+      if (!silent) setIsLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      // Initial Fetch
+      fetchData();
+
+      // Realtime Subscription
+      const channel = supabase
+        .channel('bsi_realtime_changes')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'chiller_stock' },
+          () => fetchData(true)
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'transactions' },
+          () => fetchData(true)
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
+    }
+  }, [isAuthenticated, fetchData]);
 
   const handleLogin = (userData: User) => {
     setIsAuthenticated(true);
@@ -199,7 +219,9 @@ const App: React.FC = () => {
         }
       }
     }
-    fetchData();
+    // No need to manually fetchData() here if Realtime is working, 
+    // but keeping it for immediate feedback
+    fetchData(true);
     setActiveView('INVENTORY');
   };
 
@@ -232,7 +254,7 @@ const App: React.FC = () => {
           })
           .eq('batch_id', batchId);
       }
-      fetchData();
+      fetchData(true);
     } catch (err) {
       console.error("Supabase Outflow Error:", err);
     }
@@ -246,7 +268,7 @@ const App: React.FC = () => {
           status: action === 'APPROVE' ? 'APPROVED' : 'REJECTED'
         })
         .eq('batch_id', batchId);
-      fetchData();
+      fetchData(true);
     } catch (err) {
       console.error("QC Action Error:", err);
     }
