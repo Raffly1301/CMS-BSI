@@ -100,7 +100,8 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
   };
 
   const executeConfirm = () => {
-    if (destination === 'Condem' && user?.role === 'ADMIN' && !showAdminCondemConfirm) {
+    const userRole = user?.role?.toUpperCase() || '';
+    if (destination === 'Condem' && userRole === 'ADMIN' && !showAdminCondemConfirm) {
       setShowAdminCondemConfirm(true);
       return;
     }
@@ -172,6 +173,7 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
         {filteredItems.map((item) => {
           const isSelected = selectedItemIds.includes(item.id);
           const isPendingQC = item.status === 'PENDING_QC';
+          const userRole = user?.role?.toUpperCase() || '';
           
           return (
             <div 
@@ -190,8 +192,8 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
                     <span className="bg-red-100 text-red-700 text-[8px] font-black uppercase px-2 py-0.5 rounded">ASAL: {item.source}</span>
                     {item.isWIP && <span className="bg-amber-100 text-amber-700 text-[8px] font-black px-2 py-0.5 rounded">WIP</span>}
                     {isPendingQC && (
-                      <span className="bg-amber-500 text-white text-[8px] font-black px-2 py-0.5 rounded flex items-center gap-1 uppercase">
-                        <AlertTriangle size={10} /> Menunggu QC
+                      <span className="bg-amber-500 text-white text-[8px] font-black px-2 py-0.5 rounded flex items-center gap-1 uppercase animate-pulse">
+                        <AlertTriangle size={10} /> Persetujuan Admin
                       </span>
                     )}
                   </div>
@@ -215,11 +217,11 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
 
                   <div className="flex gap-2 w-full md:w-auto md:ml-auto">
                     {isPendingQC ? (
-                      user?.role === 'ADMIN' ? (
+                      userRole === 'ADMIN' ? (
                         <div className="flex gap-1.5 w-full md:w-auto">
                            <button 
                             onClick={(e) => { e.stopPropagation(); onQCReject(item.id); }} 
-                            className="flex-1 md:flex-none bg-gray-100 text-gray-500 font-black px-4 py-2 rounded-xl flex items-center justify-center gap-2 hover:bg-gray-200 transition-colors uppercase text-[10px]"
+                            className="flex-1 md:flex-none bg-white text-gray-400 border border-gray-200 font-black px-4 py-2 rounded-xl flex items-center justify-center gap-2 hover:bg-gray-50 transition-colors uppercase text-[10px]"
                           >
                             <XCircle size={14} /> Tolak
                           </button>
@@ -232,7 +234,7 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
                         </div>
                       ) : (
                         <div className="w-full md:w-auto px-6 py-2 bg-amber-50 text-amber-600 font-black text-[10px] rounded-xl flex items-center justify-center gap-2 border border-amber-200 uppercase">
-                           <ShieldAlert size={14} /> Proses QC
+                           <ShieldAlert size={14} /> Menunggu Admin
                         </div>
                       )
                     ) : (
@@ -304,8 +306,8 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
             <div className="p-6 bg-gray-50 flex gap-3">
               <button onClick={() => { if (showAdminCondemConfirm) setShowAdminCondemConfirm(false); else { setIsBatchOutModalOpen(false); setSelectedItemForSingleOut(null); } }} className="flex-1 py-3 font-black text-gray-400 bg-white border border-gray-200 rounded-xl hover:bg-gray-100 transition-all uppercase text-xs">Batal</button>
               <button disabled={isInvalidPartial} onClick={executeConfirm} className={`flex-1 py-3 font-black text-white rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 uppercase text-xs ${isInvalidPartial ? 'bg-gray-300 cursor-not-allowed grayscale' : 'bg-red-600 shadow-red-100 hover:bg-red-700 active:scale-95'}`}>
-                {destination === 'Condem' && user?.role === 'USER' ? (
-                  <><ShieldAlert className="w-4 h-4" /> Minta Persetujuan QC</>
+                {destination === 'Condem' && (user?.role?.toUpperCase() === 'USER') ? (
+                  <><ShieldAlert className="w-4 h-4" /> Minta Persetujuan Admin</>
                 ) : (
                   <><Check className="w-4 h-4" /> {showAdminCondemConfirm ? 'Ya, Konfirmasi' : 'Konfirmasi'}</>
                 )}

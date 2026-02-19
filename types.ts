@@ -41,6 +41,7 @@ export interface ChillerItem {
 export interface Transaction {
   id: string; 
   chillerId: string; 
+  itemCode?: string; // Menyimpan kode item secara permanen di riwayat
   userId: string; 
   type: 'IN' | 'OUT' | 'QC_PENDING' | 'QC_APPROVED' | 'QC_REJECTED';
   destination?: OutflowDestination;

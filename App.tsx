@@ -1,17 +1,17 @@
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { 
   LayoutDashboard, 
   ArrowDownToLine, 
-  ThermometerSnowflake,
+  ThermometerSnowflake, 
   ClipboardList, 
-  BarChart3,
+  BarChart3, 
   Menu, 
-  X,
-  ChevronLeft,
-  ChevronRight,
-  LogOut,
-  User as UserIcon
+  X, 
+  LogOut, 
+  User as UserIcon, 
+  ChevronLast, 
+  ChevronFirst 
 } from 'lucide-react';
 import { ViewState, ChillerItem, Transaction, SystemLog, User, OutflowDestination } from './types';
 import Dashboard from './components/Dashboard';
@@ -41,39 +41,38 @@ const App: React.FC = () => {
   const [transactionTable, setTransactionTable] = useState<Transaction[]>([]);
   const [logTable, setLogTable] = useState<SystemLog[]>([]);
 
+  const itemsCache = useRef<Record<string, {name: string, code: string}>>({});
+  const usersCache = useRef<Record<string, string>>({});
+
   const fetchData = useCallback(async (silent = false) => {
     if (!silent) setIsLoading(true);
     try {
-      // 1. Fetch Items for client-side lookup
       const { data: itemsData } = await supabase.from('items').select('id, code, description');
-      const itemsLookup: Record<string, string> = {};
-      const itemsCodeLookup: Record<string, string> = {};
       if (itemsData) {
         itemsData.forEach(item => { 
-          itemsLookup[item.id] = item.description; 
-          itemsCodeLookup[item.id] = item.code;
+          itemsCache.current[item.id] = { name: item.description, code: item.code };
         });
       }
 
-      // 2. Fetch Users for resolving UUIDs to usernames in UI
       const { data: usersData } = await supabase.from('users').select('id, username');
-      const usersLookup: Record<string, string> = {};
-      if (usersData) usersData.forEach(u => { usersLookup[u.id] = u.username; });
+      if (usersData) {
+        usersData.forEach(u => { usersCache.current[u.id] = u.username; });
+      }
 
-      // 3. Fetch Chiller Stock
-      const { data: stockData, error: stockError } = await supabase
-        .from('chiller_stock')
-        .select('*')
-        .order('created_at', { ascending: false });
+      const [stockRes, trxRes] = await Promise.all([
+        supabase.from('chiller_stock').select('*').order('created_at', { ascending: false }),
+        supabase.from('transactions').select('*').order('transaction_time', { ascending: false })
+      ]);
       
-      if (stockError) throw stockError;
-      
-      const mappedStock: ChillerItem[] = (stockData || []).map(item => ({
-        id: String(item.batch_id),
+      if (stockRes.error) throw stockRes.error;
+      if (trxRes.error) throw trxRes.error;
+
+      const mappedStock: ChillerItem[] = (stockRes.data || []).map(item => ({
+        id: item.id ? String(item.id) : String(item.batch_id),
         batchId: item.batch_id,
         itemsId: item.items_id,
-        itemCode: itemsCodeLookup[item.items_id] || 'N/A',
-        itemName: itemsLookup[item.items_id] || item.items_id,
+        itemCode: itemsCache.current[item.items_id]?.code || 'N/A',
+        itemName: itemsCache.current[item.items_id]?.name || item.items_id,
         pcs: Number(item.quantity_pcs),
         kgs: Number(item.quantity_kgs),
         productionDate: item.production_date,
@@ -88,19 +87,12 @@ const App: React.FC = () => {
         isWIP: item.status_WIP === true || item.status_WIP === 'true'
       }));
 
-      // 4. Fetch Transactions
-      const { data: trxData, error: trxError } = await supabase
-        .from('transactions')
-        .select('*')
-        .order('transaction_time', { ascending: false });
-      
-      if (trxError) throw trxError;
-
-      const mappedTrx: Transaction[] = (trxData || []).map(item => ({
-        id: String(item.id || Math.random()),
-        chillerId: String(item.batch_id || item.note || 'N/A'),
-        userId: usersLookup[item.user_id] || item.user_id,
-        type: item.transaction_type as any,
+      const mappedTrx: Transaction[] = (trxRes.data || []).map(item => ({
+        id: String(item.id),
+        chillerId: String(item.batch_id || 'N/A'),
+        itemCode: item.note || undefined,
+        userId: usersCache.current[item.user_id] || item.user_id,
+        type: (item.transaction_type || '').toUpperCase() as any,
         destination: item.destination as OutflowDestination,
         pcs: Number(item.quantity_pcs),
         kgs: Number(item.quantity_kgs),
@@ -109,16 +101,15 @@ const App: React.FC = () => {
 
       setChillerTable(mappedStock);
       setTransactionTable(mappedTrx);
-      
       setLogTable(mappedTrx.map(t => ({
         id: `LOG-${t.id}`,
         userId: t.userId,
         action: t.type,
-        details: `Transaksi ${t.type} untuk Batch ${t.chillerId} ke ${t.destination || 'Chiller'}`,
+        details: `${t.type} untuk Batch ${t.chillerId} (${t.pcs} Pcs / ${t.kgs.toFixed(2)} Kg)`,
         timestamp: t.timestamp
       })));
     } catch (err) {
-      console.error("Supabase Sync Error:", err);
+      console.error("Fetch Error:", err);
     } finally {
       if (!silent) setIsLoading(false);
     }
@@ -126,61 +117,31 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (isAuthenticated) {
-      // Initial Fetch
       fetchData();
-
-      // Realtime Subscription
-      const channel = supabase
-        .channel('bsi_realtime_changes')
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'chiller_stock' },
-          () => fetchData(true)
-        )
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'transactions' },
-          () => fetchData(true)
-        )
+      const channel = supabase.channel('bsi-realtime')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'chiller_stock' }, () => fetchData(true))
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, () => fetchData(true))
         .subscribe();
-
-      return () => {
-        supabase.removeChannel(channel);
-      };
+      return () => { supabase.removeChannel(channel); };
     }
   }, [isAuthenticated, fetchData]);
 
-  const handleLogin = (userData: User) => {
-    setIsAuthenticated(true);
-    setUser(userData);
-    localStorage.setItem('bsi_auth', 'true');
-    localStorage.setItem('bsi_user', JSON.stringify(userData));
-    fetchData();
-  };
-
-  const handleLogout = () => {
-    setIsAuthenticated(false);
-    setUser(null);
-    localStorage.removeItem('bsi_auth');
-    localStorage.removeItem('bsi_user');
-  };
-
   const handleInflow = async (newItems: Omit<ChillerItem, 'id' | 'batchId' | 'entryTimestamp' | 'status' | 'itemCode'>[]) => {
     if (!user) return;
-    
     for (const item of newItems) {
-      const formatDateForBatch = (dateStr: string) => {
-        const parts = dateStr.split('-');
-        if (parts.length !== 3) return "000000";
-        const [y, m, d] = parts;
-        return `${d}${m}${y.slice(-2)}`;
+      const formatDateForBatch = (d: string) => {
+        const parts = d.split('-');
+        return parts[2] + parts[1] + parts[0].slice(-2);
       };
 
-      const uniquePart = Math.floor(Math.random() * 900 + 100).toString();
-      const batchId = `BSI-${formatDateForBatch(item.productionDate)}${formatDateForBatch(item.slaughteringDate)}-${uniquePart}`;
-
+      const pdFmt = formatDateForBatch(item.productionDate);
+      const sdFmt = formatDateForBatch(item.slaughteringDate);
+      const datePart = pdFmt === sdFmt ? pdFmt : `${pdFmt}${sdFmt}`;
+      const batchId = `BSI-${datePart}-${Math.floor(Math.random() * 900 + 100)}`;
+      const currentItemCode = itemsCache.current[item.itemsId]?.code || 'N/A';
+      
       try {
-        const payload = {
+        const { error: stockErr } = await supabase.from('chiller_stock').insert({
           batch_id: batchId,
           items_id: item.itemsId, 
           quantity_pcs: item.pcs,
@@ -191,87 +152,195 @@ const App: React.FC = () => {
           created_by: user.id, 
           source: item.source,
           status_WIP: item.isWIP || false
-        };
+        });
+        if (stockErr) throw stockErr;
 
-        const { error: stockError } = await supabase
-          .from('chiller_stock')
-          .insert(payload);
-
-        if (stockError) throw stockError;
-
-        await supabase.from('transactions').insert({
+        const { error: trxErr } = await supabase.from('transactions').insert({
+          batch_id: batchId,
+          note: currentItemCode,
           destination: 'Chiller',
           quantity_pcs: item.pcs,
           quantity_kgs: item.kgs,
-          transaction_type: 'IN',
+          transaction_type: 'in', 
           user_id: user.id,
-          transaction_time: new Date().toISOString(),
-          note: batchId
+          transaction_time: new Date().toISOString()
         });
-
-      } catch (err) {
-        console.error("Supabase Insert Error:", err);
-        const errorMsg = err instanceof Error ? err.message : JSON.stringify(err);
-        if (errorMsg.includes('status_check')) {
-           alert("DATABASE ERROR: Constraint 'status' di database memblokir nilai 'IN'. Harap jalankan SQL Fix di Supabase Editor.");
-        } else {
-           alert(`Gagal menyimpan data. Detail: ${errorMsg}`);
-        }
-      }
+        if (trxErr) throw trxErr;
+      } catch (err) { console.error("Inflow Error:", err); }
     }
-    // No need to manually fetchData() here if Realtime is working, 
-    // but keeping it for immediate feedback
     fetchData(true);
     setActiveView('INVENTORY');
   };
 
-  const handleOutflow = async (batchId: string, destination: OutflowDestination, outPcs?: number, outKgs?: number) => {
+  const handleOutflow = async (id: string, destination: OutflowDestination, outPcs?: number, outKgs?: number) => {
     if (!user) return;
-    const item = chillerTable.find(i => i.batchId === batchId);
+    const item = chillerTable.find(i => i.id === id);
     if (!item) return;
 
     const actualPcs = outPcs ?? item.pcs;
     const actualKgs = outKgs ?? item.kgs;
+    const userRole = user.role.toUpperCase();
+
+    if (destination === 'Condem' && userRole === 'USER') {
+      try {
+        const { error: stockErr } = await supabase.from('chiller_stock')
+          .update({ status: 'PENDING' })
+          .eq(item.id.includes('-') ? 'id' : 'batch_id', item.id);
+        
+        if (stockErr) throw stockErr;
+
+        const { error: trxErr } = await supabase.from('transactions').insert({
+          batch_id: item.batchId,
+          note: item.itemCode,
+          destination: 'Condem',
+          quantity_pcs: actualPcs,
+          quantity_kgs: actualKgs,
+          transaction_type: 'qc_pending', 
+          user_id: user.id,
+          transaction_time: new Date().toISOString()
+        });
+        if (trxErr) throw trxErr;
+        
+        fetchData(true);
+        return;
+      } catch (err) {
+        console.error("Condem Request Error:", err);
+        return;
+      }
+    }
 
     try {
-      await supabase.from('transactions').insert({
-        destination: destination,
-        quantity_pcs: actualPcs,
-        quantity_kgs: actualKgs,
-        transaction_type: 'OUT',
-        user_id: user.id,
-        transaction_time: new Date().toISOString(),
-        note: batchId
-      });
-
       if (actualPcs >= item.pcs) {
-        await supabase.from('chiller_stock').delete().eq('batch_id', batchId);
+        const { error: delErr } = await supabase.from('chiller_stock')
+          .delete()
+          .eq(item.id.includes('-') ? 'id' : 'batch_id', item.id);
+        if (delErr) throw delErr;
       } else {
-        await supabase.from('chiller_stock')
+        const { error: upErr } = await supabase.from('chiller_stock')
           .update({ 
             quantity_pcs: item.pcs - actualPcs, 
             quantity_kgs: item.kgs - actualKgs 
           })
-          .eq('batch_id', batchId);
+          .eq(item.id.includes('-') ? 'id' : 'batch_id', item.id);
+        if (upErr) throw upErr;
       }
+
+      const { error: trxErr } = await supabase.from('transactions').insert({
+        batch_id: item.batchId,
+        note: item.itemCode,
+        destination: destination,
+        quantity_pcs: actualPcs,
+        quantity_kgs: actualKgs,
+        transaction_type: 'out', 
+        user_id: user.id,
+        transaction_time: new Date().toISOString()
+      });
+      
+      if (trxErr) throw trxErr;
       fetchData(true);
-    } catch (err) {
-      console.error("Supabase Outflow Error:", err);
+    } catch (err) { 
+      console.error("Outflow Error:", err);
+      alert("Gagal memproses pengeluaran stok.");
     }
   };
 
-  const handleQCAction = async (batchId: string, action: 'APPROVE' | 'REJECT') => {
-    if (!user || user.role !== 'ADMIN') return;
-    try {
-      await supabase.from('chiller_stock')
-        .update({ 
-          status: action === 'APPROVE' ? 'APPROVED' : 'REJECTED'
-        })
-        .eq('batch_id', batchId);
-      fetchData(true);
-    } catch (err) {
-      console.error("QC Action Error:", err);
+  const handleBatchOut = async (ids: string[], destination: OutflowDestination) => {
+    for (const id of ids) {
+      await handleOutflow(id, destination);
     }
+  };
+
+  const handleQCAction = async (id: string, action: 'APPROVE' | 'REJECT') => {
+    if (!user || user.role.toUpperCase() !== 'ADMIN') return;
+    const item = chillerTable.find(i => i.id === id);
+    if (!item) return;
+
+    try {
+      const { data: trxList } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('batch_id', item.batchId)
+        .eq('transaction_type', 'qc_pending')
+        .order('transaction_time', { ascending: false })
+        .limit(1);
+
+      const lastTrx = trxList && trxList.length > 0 ? trxList[0] : null;
+
+      if (lastTrx && lastTrx.destination === 'Condem') {
+        if (action === 'APPROVE') {
+          if (lastTrx.quantity_pcs >= item.pcs) {
+            await supabase.from('chiller_stock').delete().eq('batch_id', item.batchId);
+          } else {
+            await supabase.from('chiller_stock').update({
+              quantity_pcs: item.pcs - lastTrx.quantity_pcs,
+              quantity_kgs: item.kgs - lastTrx.quantity_kgs,
+              status: 'IN'
+            }).eq('batch_id', item.batchId);
+          }
+          
+          await supabase.from('transactions').insert({
+            batch_id: item.batchId,
+            note: item.itemCode,
+            destination: 'Condem',
+            quantity_pcs: lastTrx.quantity_pcs,
+            quantity_kgs: lastTrx.quantity_kgs,
+            transaction_type: 'out',
+            user_id: user.id,
+            transaction_time: new Date().toISOString()
+          });
+        } else {
+          await supabase.from('chiller_stock')
+            .update({ status: 'IN' })
+            .eq('batch_id', item.batchId);
+            
+          await supabase.from('transactions').insert({
+            batch_id: item.batchId,
+            note: item.itemCode,
+            destination: 'Chiller',
+            quantity_pcs: item.pcs,
+            quantity_kgs: item.kgs,
+            transaction_type: 'qc_rejected',
+            user_id: user.id,
+            transaction_time: new Date().toISOString()
+          });
+        }
+      } else {
+        const { error: stockErr } = await supabase.from('chiller_stock')
+          .update({ status: action === 'APPROVE' ? 'APPROVED' : 'IN' })
+          .eq(item.id.includes('-') ? 'id' : 'batch_id', item.id);
+
+        if (stockErr) throw stockErr;
+
+        const { error: trxErr } = await supabase.from('transactions').insert({
+          batch_id: item.batchId,
+          note: item.itemCode,
+          destination: 'Chiller',
+          quantity_pcs: item.pcs,
+          quantity_kgs: item.kgs,
+          transaction_type: action === 'APPROVE' ? 'qc_approved' : 'qc_rejected',
+          user_id: user.id,
+          transaction_time: new Date().toISOString()
+        });
+        if (trxErr) throw trxErr;
+      }
+
+      fetchData(true);
+    } catch (err) { console.error("QC Action Error:", err); }
+  };
+
+  const handleLogin = (u: User) => {
+    setIsAuthenticated(true);
+    setUser(u);
+    localStorage.setItem('bsi_auth', 'true');
+    localStorage.setItem('bsi_user', JSON.stringify(u));
+    fetchData();
+  };
+
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    setUser(null);
+    localStorage.removeItem('bsi_auth');
+    localStorage.removeItem('bsi_user');
   };
 
   const currentInventory = useMemo(() => 
@@ -288,135 +357,139 @@ const App: React.FC = () => {
 
   if (!isAuthenticated) return <LoginForm onLogin={handleLogin} />;
 
-  const NavContent = () => {
-    const isCollapsed = sidebarCollapsed && !sidebarOpen;
-    const showText = !isCollapsed;
+  return (
+    <div className="min-h-screen flex flex-col md:flex-row bg-gray-50 overflow-hidden relative">
+      {/* Mobile Backdrop */}
+      {sidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[65] md:hidden animate-in fade-in duration-300"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
 
-    return (
-      <>
-        <div className={`flex flex-col gap-4 border-b border-white/10 ${isCollapsed ? 'p-2' : 'p-4 md:p-6'}`}>
-          <div className={`flex items-center ${isCollapsed ? 'flex-col gap-2' : 'justify-between gap-3'}`}>
-            <div className={`flex items-center gap-3 ${isCollapsed ? 'justify-center' : ''}`}>
-              <div className="bg-white p-2 rounded-xl w-10 h-10 flex items-center justify-center shrink-0 shadow-lg">
-                 <img src="/logo2.png" className="max-w-full" />
-              </div>
-              {showText && (
-                <div className="flex flex-col leading-tight overflow-hidden">
-                  <span className="text-[7px] font-black uppercase tracking-[0.2em] opacity-80 whitespace-nowrap">Chiller Management</span>
-                  <span className="font-brand font-bold italic text-[14px] whitespace-nowrap leading-none mt-0.5">Bounty Segar Indonesia</span>
-                </div>
-              )}
+      {/* Mobile Header (Top bar) */}
+      <header className="md:hidden bg-[#c01e1e] text-white p-4 flex items-center justify-between shadow-lg z-50">
+        <button 
+          onClick={() => setSidebarOpen(true)} 
+          className="p-2 bg-white/10 rounded-xl hover:bg-white/20 transition-colors"
+        >
+          <Menu size={24} />
+        </button>
+        <div className="flex items-center gap-3">
+          <img src="/logo2.png" className="w-8 h-8 bg-white p-1 rounded-lg" />
+          <span className="font-brand font-bold italic text-xs uppercase tracking-wider">BSI CMS</span>
+        </div>
+      </header>
+      
+      {/* Sidebar Aside Panel */}
+      <aside 
+        className={`
+          fixed inset-y-0 left-0 z-[70] md:relative md:flex flex-col bg-[#c01e1e] text-white 
+          transition-transform duration-300 ease-in-out shadow-2xl md:shadow-none
+          ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'} 
+          ${sidebarCollapsed ? 'md:w-20' : 'md:w-64'}
+          w-[280px] md:w-auto
+        `}
+      >
+        <div className="p-4 md:p-6 border-b border-white/10 flex items-center gap-4">
+          <button 
+            onClick={() => {
+              if (window.innerWidth < 768) setSidebarOpen(false);
+              else setSidebarCollapsed(!sidebarCollapsed);
+            }} 
+            className="p-2 hover:bg-white/10 rounded-xl transition-all shrink-0"
+          >
+            <div className="md:hidden">
+              <X size={22} className="text-white" />
             </div>
+            <div className="hidden md:block">
+              {sidebarCollapsed ? <ChevronLast size={20} /> : <ChevronFirst size={20} />}
+            </div>
+          </button>
+
+          <div className="flex items-center gap-3 overflow-hidden">
+            <div className="bg-white p-1.5 rounded-xl w-10 h-10 shrink-0 flex items-center justify-center shadow-lg">
+              <img src="/logo2.png" alt="Logo" className="w-full h-full object-contain" />
+            </div>
+            {!sidebarCollapsed && (
+              <div className="flex flex-col min-w-0 animate-in slide-in-from-left-2">
+                <span className="font-brand font-bold italic text-sm whitespace-nowrap leading-tight">
+                  Bounty Segar Indonesia
+                </span>
+                <span className="text-[9px] font-black uppercase tracking-wider opacity-60">
+                  Chiller Management System
+                </span>
+              </div>
+            )}
           </div>
         </div>
         
-        <nav className="flex-1 px-2 py-4 space-y-1.5 overflow-y-auto overflow-x-hidden">
+        <nav className="flex-1 px-3 py-6 space-y-2 overflow-y-auto">
           {navigation.map(item => (
             <button 
               key={item.name} 
-              onClick={() => {
-                setActiveView(item.view);
-                if (sidebarOpen) setSidebarOpen(false);
-              }} 
-              title={item.name}
-              className={`w-full flex items-center gap-4 px-4 py-3 rounded-xl transition-all ${activeView === item.view ? 'bg-white text-[#c01e1e] shadow-lg font-bold' : 'hover:bg-white/10'} ${isCollapsed ? 'justify-center px-0' : ''}`}
+              onClick={() => { setActiveView(item.view); setSidebarOpen(false); }} 
+              className={`
+                w-full flex items-center gap-4 px-4 py-3.5 rounded-2xl transition-all group
+                ${activeView === item.view 
+                  ? 'bg-white text-[#c01e1e] font-black shadow-[0_10px_20px_-5px_rgba(255,255,255,0.3)]' 
+                  : 'hover:bg-white/10 text-white/80 hover:text-white'
+                }
+              `}
             >
-              <item.icon size={20} className="shrink-0" />
-              {showText && <span className="text-[11px] font-black uppercase tracking-widest whitespace-nowrap">{item.name}</span>}
+              <item.icon size={20} className={activeView === item.view ? 'text-[#c01e1e]' : 'group-hover:scale-110 transition-transform'} />
+              {(!sidebarCollapsed || (window.innerWidth < 768)) && (
+                <span className="text-[11px] font-black uppercase tracking-widest">{item.name}</span>
+              )}
             </button>
           ))}
         </nav>
 
-        <div className={`border-t border-white/10 ${isCollapsed ? 'p-2' : 'p-4'}`}>
-          <div className={`flex items-center gap-3 px-3 py-3 mb-2 rounded-xl bg-white/5 ${isCollapsed ? 'justify-center' : ''}`}>
-            <UserIcon size={20} className="shrink-0" />
-            {showText && (
-              <div className="flex flex-col truncate">
-                <span className="text-[10px] font-black uppercase tracking-tight truncate">{user?.fullName}</span>
-                <span className="text-[8px] font-bold opacity-50 uppercase tracking-widest">{user?.role}</span>
+        {/* User Profile Section */}
+        {user && (
+          <div className="px-4 py-6 border-t border-white/10 mx-2 mb-1 bg-white/5 rounded-3xl m-3">
+            <div className={`flex items-center gap-3 ${sidebarCollapsed && window.innerWidth >= 768 ? 'justify-center' : ''}`}>
+              <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center shrink-0 border border-white/10">
+                <UserIcon size={20} className="text-white" />
               </div>
-            )}
+              {(!sidebarCollapsed || window.innerWidth < 768) && (
+                <div className="flex-1 min-w-0">
+                  <p className="text-[11px] font-black uppercase truncate leading-tight text-white">{user.fullName || user.username}</p>
+                  <p className="text-[9px] font-bold text-white/50 uppercase tracking-widest mt-0.5">{user.role}</p>
+                </div>
+              )}
+            </div>
           </div>
+        )}
+
+        <div className="p-4 border-t border-white/10">
           <button 
             onClick={handleLogout} 
-            className={`w-full flex items-center gap-4 px-4 py-3 hover:bg-red-500 rounded-xl transition-all ${isCollapsed ? 'justify-center px-0' : ''}`}
+            className="w-full flex items-center gap-4 px-4 py-3.5 hover:bg-red-500 rounded-2xl transition-all text-white/70 hover:text-white group"
           >
-            <LogOut size={20} className="shrink-0" />
-            {showText && <span className="text-[11px] font-black uppercase tracking-widest">Logout</span>}
+            <LogOut size={20} className="group-hover:-translate-x-1 transition-transform" />
+            {(!sidebarCollapsed || window.innerWidth < 768) && (
+              <span className="text-[11px] font-black uppercase tracking-widest">Logout</span>
+            )}
           </button>
         </div>
-      </>
-    );
-  };
-
-  return (
-    <div className="min-h-screen flex flex-col md:flex-row bg-gray-50 overflow-hidden">
-      <header className="md:hidden bg-[#c01e1e] text-white p-4 flex items-center justify-between shadow-md z-50">
-        <div className="flex items-center gap-3">
-          <img src="/logo2.png" className="w-8 h-8 bg-white p-1 rounded-lg shadow-sm" />
-          <div className="flex flex-col leading-none">
-            <span className="text-[6px] font-black uppercase tracking-widest opacity-80">Chiller Management</span>
-            <span className="font-brand font-bold italic text-xs">Bounty Segar Indonesia</span>
-          </div>
-        </div>
-        <button 
-          onClick={() => setSidebarOpen(true)} 
-          className="p-2 hover:bg-white/10 rounded-lg active:scale-90 transition-transform"
-        >
-          <Menu size={24} />
-        </button>
-      </header>
-
-      {sidebarOpen && (
-        <div 
-          className="md:hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] animate-in fade-in duration-300" 
-          onClick={() => setSidebarOpen(false)} 
-        />
-      )}
-
-      <aside className={`
-        fixed inset-y-0 z-[70] md:relative md:flex flex-col bg-[#c01e1e] text-white transition-all duration-300 ease-in-out
-        ${sidebarOpen ? 'right-0 translate-x-0 w-64 shadow-2xl' : 'right-0 translate-x-full md:left-0 md:right-auto md:translate-x-0'}
-        ${sidebarCollapsed ? 'md:w-20' : 'md:w-64'}
-      `}>
-        <button 
-          onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-          className="hidden md:flex absolute -right-4 top-24 w-8 h-8 bg-white text-[#c01e1e] rounded-full items-center justify-center shadow-lg border border-gray-100 hover:scale-110 active:scale-95 transition-all z-[80] group"
-        >
-          {sidebarCollapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
-        </button>
-
-        {sidebarOpen && (
-          <button 
-            onClick={() => setSidebarOpen(false)} 
-            className="absolute top-4 left-4 p-1.5 bg-white/10 hover:bg-white/20 rounded-lg md:hidden"
-          >
-            <X size={20} />
-          </button>
-        )}
-        <NavContent />
       </aside>
 
-      <main className="flex-1 h-screen overflow-y-auto p-4 md:p-8 pt-6 md:pt-8 transition-all duration-300">
+      <main className="flex-1 h-screen overflow-y-auto p-4 md:p-8 bg-gray-50">
         {isLoading ? (
           <div className="h-full flex flex-col items-center justify-center text-gray-400 gap-4">
-             <div className="w-12 h-12 border-4 border-red-100 border-t-red-600 rounded-full animate-spin"></div>
-             <span className="text-xs font-black uppercase tracking-widest">Sinkronisasi Data...</span>
+            <div className="w-12 h-12 border-4 border-red-100 border-t-red-600 rounded-full animate-spin"></div>
+            <span className="text-[10px] font-black uppercase tracking-[0.3em]">Meyinkronkan Data...</span>
           </div>
         ) : (
-          <div className="max-w-7xl mx-auto">
-            {(() => {
-              switch (activeView) {
-                case 'DASHBOARD': return <Dashboard items={chillerTable} transactions={transactionTable} onNavigate={setActiveView} />;
-                case 'INFLOW': return <InflowForm onSubmitBatch={handleInflow} />;
-                case 'INVENTORY': return <InventoryList user={user} items={currentInventory} onOut={handleOutflow} onBatchOut={()=>{}} onQCApprove={(id)=>handleQCAction(id,'APPROVE')} onQCReject={(id)=>handleQCAction(id,'REJECT')} />;
-                case 'REPORTS': return <Reports items={chillerTable} transactions={transactionTable} logs={logTable} users={[user!]} />;
-                case 'DAILY_REPORT': return <DailyStockReport items={chillerTable} />;
-                default: return <Dashboard items={chillerTable} transactions={transactionTable} onNavigate={setActiveView} />;
-              }
-            })()}
+          <div className="max-w-7xl mx-auto pb-20 md:pb-0">
+            {activeView === 'DASHBOARD' && <Dashboard items={chillerTable} transactions={transactionTable} onNavigate={setActiveView} />}
+            {activeView === 'INFLOW' && <InflowForm onSubmitBatch={handleInflow} />}
+            {activeView === 'INVENTORY' && <InventoryList user={user} items={currentInventory} onOut={handleOutflow} onBatchOut={handleBatchOut} onQCApprove={(id)=>handleQCAction(id,'APPROVE')} onQCReject={(id)=>handleQCAction(id,'REJECT')} />}
+            {activeView === 'REPORTS' && <Reports items={chillerTable} transactions={transactionTable} logs={logTable} users={[user!]} />}
+            {activeView === 'DAILY_REPORT' && <DailyStockReport items={chillerTable} />}
           </div>
-        )}
+        )} 
       </main>
     </div>
   );
