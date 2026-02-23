@@ -67,26 +67,6 @@ const App: React.FC = () => {
       if (stockRes.error) throw stockRes.error;
       if (trxRes.error) throw trxRes.error;
 
-      const mappedStock: ChillerItem[] = (stockRes.data || []).map(item => ({
-        id: item.id ? String(item.id) : String(item.batch_id),
-        batchId: item.batch_id,
-        itemsId: item.items_id,
-        itemCode: itemsCache.current[item.items_id]?.code || 'N/A',
-        itemName: itemsCache.current[item.items_id]?.name || item.items_id,
-        pcs: Number(item.quantity_pcs),
-        kgs: Number(item.quantity_kgs),
-        productionDate: item.production_date,
-        slaughteringDate: item.slaughtering_date,
-        source: item.source || 'FPS',
-        entryTimestamp: new Date(item.created_at).getTime(),
-        status: (
-          item.status === 'OUT' || item.status === 'OUT_CHILLER' ? 'OUT_CHILLER' : 
-          item.status === 'PENDING' || item.status === 'QC_PENDING' ? 'PENDING_QC' : 
-          'IN_CHILLER'
-        ),
-        isWIP: item.status_WIP === true || item.status_WIP === 'true'
-      }));
-
       const mappedTrx: Transaction[] = (trxRes.data || []).map(item => ({
         id: String(item.id),
         chillerId: String(item.batch_id || 'N/A'),
@@ -98,6 +78,32 @@ const App: React.FC = () => {
         kgs: Number(item.quantity_kgs),
         timestamp: new Date(item.transaction_time).getTime()
       }));
+
+      const mappedStock: ChillerItem[] = (stockRes.data || []).map(item => {
+        const batchId = item.batch_id;
+        const lastOut = mappedTrx.find(t => t.chillerId === batchId && t.type === 'OUT');
+
+        return {
+          id: item.id ? String(item.id) : String(item.batch_id),
+          batchId: item.batch_id,
+          itemsId: item.items_id,
+          itemCode: itemsCache.current[item.items_id]?.code || 'N/A',
+          itemName: itemsCache.current[item.items_id]?.name || item.items_id,
+          pcs: Number(item.quantity_pcs),
+          kgs: Number(item.quantity_kgs),
+          productionDate: item.production_date,
+          slaughteringDate: item.slaughtering_date,
+          source: item.source || 'FPS',
+          entryTimestamp: new Date(item.created_at).getTime(),
+          exitTimestamp: lastOut ? lastOut.timestamp : undefined,
+          status: (
+            item.status === 'OUT' || item.status === 'OUT_CHILLER' ? 'OUT_CHILLER' : 
+            item.status === 'PENDING' || item.status === 'QC_PENDING' ? 'PENDING_QC' : 
+            'IN_CHILLER'
+          ),
+          isWIP: item.status_WIP === true || item.status_WIP === 'true'
+        };
+      });
 
       setChillerTable(mappedStock);
       setTransactionTable(mappedTrx);
@@ -181,7 +187,7 @@ const App: React.FC = () => {
     const actualKgs = outKgs ?? item.kgs;
     const userRole = user.role.toUpperCase();
 
-    if (destination === 'Condem' && userRole === 'USER') {
+    if (destination === 'Condem' && (userRole === 'USER' || userRole === 'ADMIN')) {
       try {
         const { error: stockErr } = await supabase.from('chiller_stock')
           .update({ status: 'PENDING' })
@@ -211,10 +217,14 @@ const App: React.FC = () => {
 
     try {
       if (actualPcs >= item.pcs) {
-        const { error: delErr } = await supabase.from('chiller_stock')
-          .delete()
+        const { error: upErr } = await supabase.from('chiller_stock')
+          .update({ 
+            status: 'OUT',
+            quantity_pcs: 0,
+            quantity_kgs: 0
+          })
           .eq(item.id.includes('-') ? 'id' : 'batch_id', item.id);
-        if (delErr) throw delErr;
+        if (upErr) throw upErr;
       } else {
         const { error: upErr } = await supabase.from('chiller_stock')
           .update({ 
@@ -251,7 +261,8 @@ const App: React.FC = () => {
   };
 
   const handleQCAction = async (id: string, action: 'APPROVE' | 'REJECT') => {
-    if (!user || user.role.toUpperCase() !== 'ADMIN') return;
+    const role = user?.role?.toUpperCase();
+    if (!user || (role !== 'ADMINQC' && role !== 'SUPERADMIN')) return;
     const item = chillerTable.find(i => i.id === id);
     if (!item) return;
 
@@ -269,7 +280,11 @@ const App: React.FC = () => {
       if (lastTrx && lastTrx.destination === 'Condem') {
         if (action === 'APPROVE') {
           if (lastTrx.quantity_pcs >= item.pcs) {
-            await supabase.from('chiller_stock').delete().eq('batch_id', item.batchId);
+            await supabase.from('chiller_stock').update({
+              status: 'OUT',
+              quantity_pcs: 0,
+              quantity_kgs: 0
+            }).eq('batch_id', item.batchId);
           } else {
             await supabase.from('chiller_stock').update({
               quantity_pcs: item.pcs - lastTrx.quantity_pcs,
@@ -351,7 +366,7 @@ const App: React.FC = () => {
     { name: 'Dashboard', view: 'DASHBOARD' as ViewState, icon: LayoutDashboard },
     { name: 'Input', view: 'INFLOW' as ViewState, icon: ArrowDownToLine },
     { name: 'Stok Chiller', view: 'INVENTORY' as ViewState, icon: ThermometerSnowflake },
-    { name: 'Laporan & Log', view: 'REPORTS' as ViewState, icon: ClipboardList },
+    ...(user?.role?.toUpperCase() !== 'USER' ? [{ name: 'Laporan & Log', view: 'REPORTS' as ViewState, icon: ClipboardList }] : []),
     { name: 'Stok Harian', view: 'DAILY_REPORT' as ViewState, icon: BarChart3 },
   ];
 
@@ -487,9 +502,9 @@ const App: React.FC = () => {
             {activeView === 'INFLOW' && <InflowForm onSubmitBatch={handleInflow} />}
             {activeView === 'INVENTORY' && <InventoryList user={user} items={currentInventory} onOut={handleOutflow} onBatchOut={handleBatchOut} onQCApprove={(id)=>handleQCAction(id,'APPROVE')} onQCReject={(id)=>handleQCAction(id,'REJECT')} />}
             {activeView === 'REPORTS' && <Reports items={chillerTable} transactions={transactionTable} logs={logTable} users={[user!]} />}
-            {activeView === 'DAILY_REPORT' && <DailyStockReport items={chillerTable} />}
+            {activeView === 'DAILY_REPORT' && <DailyStockReport items={chillerTable} transactions={transactionTable} />}
           </div>
-        )} 
+        )}
       </main>
     </div>
   );

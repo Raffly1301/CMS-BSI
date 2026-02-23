@@ -101,7 +101,7 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
 
   const executeConfirm = () => {
     const userRole = user?.role?.toUpperCase() || '';
-    if (destination === 'Condem' && userRole === 'ADMIN' && !showAdminCondemConfirm) {
+    if (destination === 'Condem' && (userRole === 'ADMINQC' || userRole === 'SUPERADMIN') && !showAdminCondemConfirm) {
       setShowAdminCondemConfirm(true);
       return;
     }
@@ -217,7 +217,7 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
 
                   <div className="flex gap-2 w-full md:w-auto md:ml-auto">
                     {isPendingQC ? (
-                      userRole === 'ADMIN' ? (
+                      (userRole === 'ADMINQC' || userRole === 'SUPERADMIN') ? (
                         <div className="flex gap-1.5 w-full md:w-auto">
                            <button 
                             onClick={(e) => { e.stopPropagation(); onQCReject(item.id); }} 
@@ -234,7 +234,7 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
                         </div>
                       ) : (
                         <div className="w-full md:w-auto px-6 py-2 bg-amber-50 text-amber-600 font-black text-[10px] rounded-xl flex items-center justify-center gap-2 border border-amber-200 uppercase">
-                           <ShieldAlert size={14} /> Menunggu Admin
+                           <ShieldAlert size={14} /> Menunggu Persetujuan
                         </div>
                       )
                     ) : (
@@ -306,8 +306,8 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
             <div className="p-6 bg-gray-50 flex gap-3">
               <button onClick={() => { if (showAdminCondemConfirm) setShowAdminCondemConfirm(false); else { setIsBatchOutModalOpen(false); setSelectedItemForSingleOut(null); } }} className="flex-1 py-3 font-black text-gray-400 bg-white border border-gray-200 rounded-xl hover:bg-gray-100 transition-all uppercase text-xs">Batal</button>
               <button disabled={isInvalidPartial} onClick={executeConfirm} className={`flex-1 py-3 font-black text-white rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 uppercase text-xs ${isInvalidPartial ? 'bg-gray-300 cursor-not-allowed grayscale' : 'bg-red-600 shadow-red-100 hover:bg-red-700 active:scale-95'}`}>
-                {destination === 'Condem' && (user?.role?.toUpperCase() === 'USER') ? (
-                  <><ShieldAlert className="w-4 h-4" /> Minta Persetujuan Admin</>
+                {destination === 'Condem' && (user?.role?.toUpperCase() === 'USER' || user?.role?.toUpperCase() === 'ADMIN') ? (
+                  <><ShieldAlert className="w-4 h-4" /> Minta Persetujuan QC</>
                 ) : (
                   <><Check className="w-4 h-4" /> {showAdminCondemConfirm ? 'Ya, Konfirmasi' : 'Konfirmasi'}</>
                 )}

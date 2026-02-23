@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useRef } from 'react';
-import { ChillerItem } from '../types';
+import { ChillerItem, Transaction } from '../types';
 import { 
   Calendar, 
   FileText,
@@ -14,6 +14,7 @@ import {
 
 interface DailyStockReportProps {
   items: ChillerItem[];
+  transactions: Transaction[];
 }
 
 // Access global libraries from index.html
@@ -33,7 +34,7 @@ interface StockRow {
   isWIPGroup?: boolean;
 }
 
-const DailyStockReport: React.FC<DailyStockReportProps> = ({ items }) => {
+const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions }) => {
   const [selectedDate, setSelectedDate] = useState<string>(
     new Date().toISOString().split('T')[0]
   );
@@ -51,35 +52,57 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items }) => {
 
     const processGroup = (filterFn: (item: ChillerItem) => boolean, label: string, isWIPGroup = false) => {
       const groupItems = items.filter(filterFn);
+      const groupBatchIds = new Set(groupItems.map(i => i.batchId));
       
-      const opening = groupItems.filter(i => i.entryTimestamp < startOfDay && (i.status === 'IN_CHILLER' || (i.exitTimestamp && i.exitTimestamp >= startOfDay)));
-      const inItems = groupItems.filter(i => i.entryTimestamp >= startOfDay && i.entryTimestamp <= endOfDay);
-      const outItems = groupItems.filter(i => i.status === 'OUT_CHILLER' && i.exitTimestamp && i.exitTimestamp >= startOfDay && i.exitTimestamp <= endOfDay);
-      const ending = groupItems.filter(i => i.entryTimestamp <= endOfDay && (i.status === 'IN_CHILLER' || (i.exitTimestamp && i.exitTimestamp > endOfDay)));
+      const groupTrx = transactions.filter(t => groupBatchIds.has(t.chillerId));
+      const sumT = (arr: Transaction[], key: 'kgs' | 'pcs') => arr.reduce((acc, curr) => acc + (curr[key] || 0), 0);
 
-      const sum = (arr: ChillerItem[], key: 'kgs' | 'pcs') => arr.reduce((acc, curr) => acc + (curr[key] || 0), 0);
+      // Opening Stock: (Total IN before day) - (Total OUT before day)
+      const beforeInK = sumT(groupTrx.filter(t => t.type === 'IN' && t.timestamp < startOfDay), 'kgs');
+      const beforeOutK = sumT(groupTrx.filter(t => t.type === 'OUT' && t.timestamp < startOfDay), 'kgs');
+      const openingKgs = beforeInK - beforeOutK;
+
+      const beforeInP = sumT(groupTrx.filter(t => t.type === 'IN' && t.timestamp < startOfDay), 'pcs');
+      const beforeOutP = sumT(groupTrx.filter(t => t.type === 'OUT' && t.timestamp < startOfDay), 'pcs');
+      const openingPcs = beforeInP - beforeOutP;
+
+      // Movements during the day
+      const dayInTrx = groupTrx.filter(t => t.type === 'IN' && t.timestamp >= startOfDay && t.timestamp <= endOfDay);
+      const dayOutTrx = groupTrx.filter(t => t.type === 'OUT' && t.timestamp >= startOfDay && t.timestamp <= endOfDay);
+
+      const inKgs = sumT(dayInTrx, 'kgs');
+      const inPcs = sumT(dayInTrx, 'pcs');
+      const outKgs = sumT(dayOutTrx, 'kgs');
+      const outPcs = sumT(dayOutTrx, 'pcs');
+
+      // Ending Stock
+      const endingKgs = openingKgs + inKgs - outKgs;
+      const endingPcs = openingPcs + inPcs - outPcs;
 
       return {
         name: label,
-        openingKgs: sum(opening, 'kgs'),
-        openingPcs: sum(opening, 'pcs'),
-        inKgs: sum(inItems, 'kgs'),
-        inPcs: sum(inItems, 'pcs'),
-        outKgs: sum(outItems, 'kgs'),
-        outPcs: sum(outItems, 'pcs'),
-        endingKgs: sum(ending, 'kgs'),
-        endingPcs: sum(ending, 'pcs'),
+        openingKgs,
+        openingPcs,
+        inKgs,
+        inPcs,
+        outKgs,
+        outPcs,
+        endingKgs,
+        endingPcs,
         isWIPGroup
       };
     };
 
     // Add WIP Overall Row
-    rows.push(processGroup(i => !!i.isWIP, 'TOTAL WIP', true));
+    const wipRow = processGroup(i => !!i.isWIP, 'TOTAL WIP', true);
+    if (wipRow.openingKgs > 0 || wipRow.inKgs > 0 || wipRow.outKgs > 0 || wipRow.openingPcs > 0 || wipRow.inPcs > 0 || wipRow.outPcs > 0) {
+      rows.push(wipRow);
+    }
 
     // Add Individual Items Row (Non-WIP)
     itemNames.forEach((name: string) => {
       const row = processGroup(i => i.itemName === name && !i.isWIP, name);
-      if (row.openingKgs > 0 || row.inKgs > 0 || row.outKgs > 0) {
+      if (row.openingKgs > 0 || row.inKgs > 0 || row.outKgs > 0 || row.openingPcs > 0 || row.inPcs > 0 || row.outPcs > 0) {
         rows.push(row);
       }
     });
@@ -97,12 +120,19 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items }) => {
     const wipItems = items.filter(i => !!i.isWIP);
     
     return wipItems.filter(i => {
-        const inStockStart = i.entryTimestamp < startOfDay && (i.status === 'IN_CHILLER' || (i.exitTimestamp && i.exitTimestamp >= startOfDay));
-        const movedIn = i.entryTimestamp >= startOfDay && i.entryTimestamp <= endOfDay;
-        const movedOut = i.status === 'OUT_CHILLER' && i.exitTimestamp && i.exitTimestamp >= startOfDay && i.exitTimestamp <= endOfDay;
-        return inStockStart || movedIn || movedOut;
+        const batchTrx = transactions.filter(t => t.chillerId === i.batchId);
+        const sumT = (arr: Transaction[], key: 'kgs' | 'pcs') => arr.reduce((acc, curr) => acc + (curr[key] || 0), 0);
+
+        const beforeIn = sumT(batchTrx.filter(t => t.type === 'IN' && t.timestamp < startOfDay), 'kgs');
+        const beforeOut = sumT(batchTrx.filter(t => t.type === 'OUT' && t.timestamp < startOfDay), 'kgs');
+        const opening = beforeIn - beforeOut;
+
+        const dayIn = sumT(batchTrx.filter(t => t.type === 'IN' && t.timestamp >= startOfDay && t.timestamp <= endOfDay), 'kgs');
+        const dayOut = sumT(batchTrx.filter(t => t.type === 'OUT' && t.timestamp >= startOfDay && t.timestamp <= endOfDay), 'kgs');
+
+        return opening > 0 || dayIn > 0 || dayOut > 0;
     });
-  }, [items, selectedDate, isWIPExpanded]);
+  }, [items, transactions, selectedDate, isWIPExpanded]);
 
   const filteredData = reportData.filter(row => 
     row.name.toLowerCase().includes(searchTerm.toLowerCase())
@@ -145,33 +175,11 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items }) => {
         <div>
           <h2 className="text-2xl font-black text-gray-900 tracking-tight uppercase">Laporan Stok Harian</h2>
           <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">
-            Rekapitulasi Pergerakan Barang Tanggal {new Date(selectedDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
+            Rekapitulasi Pergerakan Barang
           </p>
         </div>
         
         <div className="flex flex-wrap items-center gap-2 action-buttons">
-          <div className="relative">
-            <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-red-600 w-4 h-4 pointer-events-none" />
-            <input 
-              type="date"
-              className="pl-10 pr-4 py-2 bg-white border border-gray-200 rounded-xl focus:ring-4 focus:ring-red-100 focus:border-red-600 outline-none shadow-sm font-bold text-xs text-gray-700"
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-            />
-          </div>
-
-          <div className="flex bg-gray-200 p-1 rounded-xl">
-            {(['KGS', 'PCS'] as const).map(u => (
-              <button
-                key={u}
-                onClick={() => setUnit(u)}
-                className={`px-4 py-1.5 rounded-lg text-[10px] font-black transition-all ${unit === u ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-              >
-                {u}
-              </button>
-            ))}
-          </div>
-
           <div className="flex items-center gap-1 bg-white border border-gray-200 p-1 rounded-xl shadow-sm">
             <button onClick={downloadPDF} className="p-2 hover:bg-gray-50 rounded-lg transition-colors text-red-600" title="Download PDF">
               <FileText size={18} />
@@ -184,20 +192,71 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items }) => {
         </div>
       </header>
 
-      <div className="bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden" ref={reportRef}>
-        <div className="p-4 border-b border-gray-50 flex items-center justify-between gap-4 print:hidden">
-          <div className="relative flex-1 max-w-xs">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-300 w-3.5 h-3.5" />
+      {/* Filter Bar */}
+      <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
+            <Calendar size={12} className="text-red-600" /> Tanggal Laporan
+          </label>
+          <input 
+            type="date"
+            className="w-full px-4 py-2.5 bg-gray-50 border-2 border-transparent rounded-xl focus:bg-white focus:border-red-600 outline-none transition-all font-bold text-xs text-gray-700"
+            value={selectedDate}
+            onChange={(e) => setSelectedDate(e.target.value)}
+          />
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
+            <Search size={12} className="text-red-600" /> Cari Item
+          </label>
+          <div className="relative group">
             <input 
               type="text" 
-              placeholder="Cari item..."
-              className="w-full pl-9 pr-4 py-2 bg-gray-50 border-none rounded-lg text-[11px] font-bold focus:ring-2 focus:ring-red-100 outline-none"
+              placeholder="Cari deskripsi item..."
+              className="w-full px-4 py-2.5 bg-gray-50 border-2 border-transparent rounded-xl focus:bg-white focus:border-red-600 outline-none transition-all font-bold text-xs text-gray-700"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
+            {searchTerm && (
+              <button 
+                onClick={() => setSearchTerm('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-red-600 transition-colors"
+              >
+                <Hash size={14} />
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
+            <Info size={12} className="text-red-600" /> Satuan Tampilan
+          </label>
+          <div className="flex bg-gray-100 p-1 rounded-xl h-[42px]">
+            {(['KGS', 'PCS'] as const).map(u => (
+              <button
+                key={u}
+                onClick={() => setUnit(u)}
+                className={`flex-1 rounded-lg text-[10px] font-black transition-all ${unit === u ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                {u}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden" ref={reportRef}>
+        <div className="p-4 border-b border-gray-50 flex items-center justify-between gap-4 print:hidden bg-gray-50/50">
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-red-600 animate-pulse" />
+            <span className="text-[10px] font-black text-gray-900 uppercase tracking-widest">
+              Data Tanggal: {new Date(selectedDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
+            </span>
           </div>
           <div className="text-[10px] font-black text-gray-400 uppercase tracking-widest hidden md:block">
-            Satuan: <span className="text-red-600">{unit}</span>
+            Menampilkan <span className="text-red-600">{filteredData.length}</span> Baris
           </div>
         </div>
 
@@ -260,17 +319,20 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items }) => {
                         const startOfDay = new Date(selectedDate).setHours(0, 0, 0, 0);
                         const endOfDay = new Date(selectedDate).setHours(23, 59, 59, 999);
                         
-                        const opK = (batch.entryTimestamp < startOfDay && (batch.status === 'IN_CHILLER' || (batch.exitTimestamp && batch.exitTimestamp >= startOfDay))) ? batch.kgs : 0;
-                        const opP = (batch.entryTimestamp < startOfDay && (batch.status === 'IN_CHILLER' || (batch.exitTimestamp && batch.exitTimestamp >= startOfDay))) ? batch.pcs : 0;
+                        const batchTrx = transactions.filter(t => t.chillerId === batch.batchId);
+                        const sumT = (arr: Transaction[], key: 'kgs' | 'pcs') => arr.reduce((acc, curr) => acc + (curr[key] || 0), 0);
+
+                        const opK = sumT(batchTrx.filter(t => t.type === 'IN' && t.timestamp < startOfDay), 'kgs') - sumT(batchTrx.filter(t => t.type === 'OUT' && t.timestamp < startOfDay), 'kgs');
+                        const opP = sumT(batchTrx.filter(t => t.type === 'IN' && t.timestamp < startOfDay), 'pcs') - sumT(batchTrx.filter(t => t.type === 'OUT' && t.timestamp < startOfDay), 'pcs');
                         
-                        const inK = (batch.entryTimestamp >= startOfDay && batch.entryTimestamp <= endOfDay) ? batch.kgs : 0;
-                        const inP = (batch.entryTimestamp >= startOfDay && batch.entryTimestamp <= endOfDay) ? batch.pcs : 0;
+                        const inK = sumT(batchTrx.filter(t => t.type === 'IN' && t.timestamp >= startOfDay && t.timestamp <= endOfDay), 'kgs');
+                        const inP = sumT(batchTrx.filter(t => t.type === 'IN' && t.timestamp >= startOfDay && t.timestamp <= endOfDay), 'pcs');
                         
-                        const outK = (batch.status === 'OUT_CHILLER' && batch.exitTimestamp && batch.exitTimestamp >= startOfDay && batch.exitTimestamp <= endOfDay) ? batch.kgs : 0;
-                        const outP = (batch.status === 'OUT_CHILLER' && batch.exitTimestamp && batch.exitTimestamp >= startOfDay && batch.exitTimestamp <= endOfDay) ? batch.pcs : 0;
+                        const outK = sumT(batchTrx.filter(t => t.type === 'OUT' && t.timestamp >= startOfDay && t.timestamp <= endOfDay), 'kgs');
+                        const outP = sumT(batchTrx.filter(t => t.type === 'OUT' && t.timestamp >= startOfDay && t.timestamp <= endOfDay), 'pcs');
                         
-                        const edK = (batch.entryTimestamp <= endOfDay && (batch.status === 'IN_CHILLER' || (batch.exitTimestamp && batch.exitTimestamp > endOfDay))) ? batch.kgs : 0;
-                        const edP = (batch.entryTimestamp <= endOfDay && (batch.status === 'IN_CHILLER' || (batch.exitTimestamp && batch.exitTimestamp > endOfDay))) ? batch.pcs : 0;
+                        const edK = opK + inK - outK;
+                        const edP = opP + inP - outP;
 
                         return (
                           <tr key={`wip-batch-${bIdx}`} className="bg-amber-50/10 animate-in slide-in-from-top-1 duration-200">
@@ -282,7 +344,6 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items }) => {
                             </td>
                             <td className="px-4 py-1.5 text-right"><span className="text-[10px] font-medium text-gray-500">{unit === 'KGS' ? opK.toFixed(2) : opP}</span></td>
                             <td className="px-4 py-1.5 text-right"><span className="text-[10px] font-bold text-green-500">{unit === 'KGS' ? inK.toFixed(2) : inP}</span></td>
-                            {/* Fix: use outK instead of outKgs to refer to the local variable calculated above */}
                             <td className="px-4 py-1.5 text-right"><span className="text-[10px] font-bold text-blue-500">{unit === 'KGS' ? outK.toFixed(2) : outP}</span></td>
                             <td className="px-6 py-1.5 text-right bg-red-50/5"><span className="text-[10px] font-black text-red-500/70">{unit === 'KGS' ? edK.toFixed(2) : edP}</span></td>
                           </tr>

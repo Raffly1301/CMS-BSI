@@ -35,7 +35,7 @@ const LoginForm: React.FC<LoginFormProps> = ({ onLogin }) => {
         onLogin({ 
           id: data.id, 
           username: data.username, 
-          role: data.role as 'ADMIN' | 'USER', 
+          role: data.role as any, 
           fullName: data.username.toUpperCase() 
         });
       }
