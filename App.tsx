@@ -11,7 +11,8 @@ import {
   LogOut, 
   User as UserIcon, 
   ChevronLast, 
-  ChevronFirst 
+  ChevronFirst,
+  Database
 } from 'lucide-react';
 import { ViewState, ChillerItem, Transaction, SystemLog, User, OutflowDestination } from './types';
 import Dashboard from './components/Dashboard';
@@ -19,6 +20,7 @@ import InflowForm from './components/InflowForm';
 import InventoryList from './components/InventoryList';
 import Reports from './components/Reports';
 import DailyStockReport from './components/DailyStockReport';
+import ItemDatabase from './components/ItemDatabase';
 import LoginForm from './components/LoginForm';
 import { supabase } from './lib/supabase';
 
@@ -370,6 +372,7 @@ const App: React.FC = () => {
     { name: 'Stok Chiller', view: 'INVENTORY' as ViewState, icon: ThermometerSnowflake },
     ...(user?.role?.toUpperCase() !== 'USER' ? [{ name: 'Laporan & Log', view: 'REPORTS' as ViewState, icon: ClipboardList }] : []),
     { name: 'Stok Harian', view: 'DAILY_REPORT' as ViewState, icon: BarChart3 },
+    ...(user?.role?.toUpperCase() === 'ADMIN' || user?.role?.toUpperCase() === 'SUPERADMIN' ? [{ name: 'Database Item', view: 'ITEM_DATABASE' as ViewState, icon: Database }] : []),
   ];
 
   if (!isAuthenticated) return <LoginForm onLogin={handleLogin} />;
@@ -505,6 +508,7 @@ const App: React.FC = () => {
             {activeView === 'INVENTORY' && <InventoryList user={user} items={currentInventory} onOut={handleOutflow} onBatchOut={handleBatchOut} onQCApprove={(id)=>handleQCAction(id,'APPROVE')} onQCReject={(id)=>handleQCAction(id,'REJECT')} />}
             {activeView === 'REPORTS' && <Reports items={chillerTable} transactions={transactionTable} logs={logTable} users={[user!]} />}
             {activeView === 'DAILY_REPORT' && <DailyStockReport items={chillerTable} transactions={transactionTable} />}
+            {activeView === 'ITEM_DATABASE' && <ItemDatabase user={user} />}
           </div>
         )}
       </main>

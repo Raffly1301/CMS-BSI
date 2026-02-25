@@ -60,4 +60,12 @@ export interface SystemLog {
   timestamp: number;
 }
 
-export type ViewState = 'DASHBOARD' | 'INFLOW' | 'INVENTORY' | 'REPORTS' | 'DAILY_REPORT';
+export interface ItemMaster {
+  id: string;
+  code: string;
+  description: string;
+  category?: string;
+  created_at?: string;
+}
+
+export type ViewState = 'DASHBOARD' | 'INFLOW' | 'INVENTORY' | 'REPORTS' | 'DAILY_REPORT' | 'ITEM_DATABASE';
