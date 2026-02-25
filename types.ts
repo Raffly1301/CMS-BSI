@@ -1,5 +1,5 @@
 
-export type InflowSource = 'FPS' | 'Marinasi' | 'SMS' | 'Boneless' | 'Retur' | 'Parting' | 'CS';
+export type InflowSource = 'PDS' | 'FPS' | 'PARTING' | 'MARINASI' | 'BONELESS' | 'SO FRESH' | 'IQF' | 'RETUR' | 'SMS' | 'CS';
 
 export type OutflowDestination = 
   | 'Boneless' 
@@ -32,6 +32,7 @@ export interface ChillerItem {
   productionDate: string; // production_date
   slaughteringDate: string; // slaughtering_date
   source: InflowSource; // source
+  allocation: InflowSource; // allocation
   entryTimestamp: number; // derived from created_at
   exitTimestamp?: number; 
   status: 'IN_CHILLER' | 'OUT_CHILLER' | 'PENDING_QC';

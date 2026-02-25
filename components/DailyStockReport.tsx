@@ -1,6 +1,7 @@
 
 import React, { useState, useMemo, useRef } from 'react';
 import { ChillerItem, Transaction } from '../types';
+import { formatNumber } from '@/utils';
 import { 
   Calendar, 
   FileText,
@@ -47,7 +48,7 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
     const startOfDay = new Date(selectedDate).setHours(0, 0, 0, 0);
     const endOfDay = new Date(selectedDate).setHours(23, 59, 59, 999);
 
-    const itemNames: string[] = Array.from(new Set(items.map(i => i.itemName)));
+    const itemCodes: string[] = Array.from(new Set(items.map(i => i.itemCode)));
     const rows: StockRow[] = [];
 
     const processGroup = (filterFn: (item: ChillerItem) => boolean, label: string, isWIPGroup = false) => {
@@ -100,8 +101,8 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
     }
 
     // Add Individual Items Row (Non-WIP)
-    itemNames.forEach((name: string) => {
-      const row = processGroup(i => i.itemName === name && !i.isWIP, name);
+    itemCodes.forEach((code: string) => {
+      const row = processGroup(i => i.itemCode === code && !i.isWIP, code);
       if (row.openingKgs > 0 || row.inKgs > 0 || row.outKgs > 0 || row.openingPcs > 0 || row.inPcs > 0 || row.outPcs > 0) {
         rows.push(row);
       }
@@ -278,7 +279,7 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
             <table className="w-full text-left border-collapse table-fixed min-w-[600px]">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-100">
-                  <th className="px-6 py-2.5 text-[10px] font-black text-gray-400 uppercase tracking-wider w-[240px]">Item Description</th>
+                  <th className="px-6 py-2.5 text-[10px] font-black text-gray-400 uppercase tracking-wider w-[240px]">Kode Item</th>
                   <th className="px-4 py-2.5 text-[10px] font-black text-gray-400 uppercase tracking-wider text-right">Opening Stock</th>
                   <th className="px-4 py-2.5 text-[10px] font-black text-gray-400 uppercase tracking-wider text-right text-green-600">In</th>
                   <th className="px-4 py-2.5 text-[10px] font-black text-gray-400 uppercase tracking-wider text-right text-blue-600">Out</th>
@@ -309,10 +310,10 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
                             </div>
                           </div>
                         </td>
-                        <td className="px-4 py-2 text-right"><span className="text-[11px] font-bold text-gray-600">{unit === 'KGS' ? row.openingKgs.toFixed(2) : row.openingPcs}</span></td>
-                        <td className="px-4 py-2 text-right"><span className="text-[11px] font-black text-green-600">{unit === 'KGS' ? row.inKgs.toFixed(2) : row.inPcs}</span></td>
-                        <td className="px-4 py-2 text-right"><span className="text-[11px] font-black text-blue-600">{unit === 'KGS' ? row.outKgs.toFixed(2) : row.outPcs}</span></td>
-                        <td className="px-6 py-2 text-right bg-red-50/10"><span className="text-[11px] font-black text-red-700">{unit === 'KGS' ? row.endingKgs.toFixed(2) : row.endingPcs}</span></td>
+                        <td className="px-4 py-2 text-right"><span className="text-[11px] font-bold text-gray-600">{unit === 'KGS' ? formatNumber(row.openingKgs, 2) : formatNumber(row.openingPcs, 0)}</span></td>
+                        <td className="px-4 py-2 text-right"><span className="text-[11px] font-black text-green-600">{unit === 'KGS' ? formatNumber(row.inKgs, 2) : formatNumber(row.inPcs, 0)}</span></td>
+                        <td className="px-4 py-2 text-right"><span className="text-[11px] font-black text-blue-600">{unit === 'KGS' ? formatNumber(row.outKgs, 2) : formatNumber(row.outPcs, 0)}</span></td>
+                        <td className="px-6 py-2 text-right bg-red-50/10"><span className="text-[11px] font-black text-red-700">{unit === 'KGS' ? formatNumber(row.endingKgs, 2) : formatNumber(row.endingPcs, 0)}</span></td>
                       </tr>
 
                       {isWIPRow && isWIPExpanded && wipBreakdown.map((batch, bIdx) => {
@@ -339,13 +340,13 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
                             <td className="px-6 py-1.5 pl-12 border-l-2 border-amber-400">
                               <div className="flex flex-col">
                                 <span className="text-[9px] font-black text-amber-800 uppercase flex items-center gap-1"><Hash size={10} /> {batch.batchId}</span>
-                                <span className="text-[8px] font-bold text-gray-500 uppercase">{batch.itemName}</span>
+                                <span className="text-[8px] font-bold text-gray-500 uppercase">{batch.itemCode}</span>
                               </div>
                             </td>
-                            <td className="px-4 py-1.5 text-right"><span className="text-[10px] font-medium text-gray-500">{unit === 'KGS' ? opK.toFixed(2) : opP}</span></td>
-                            <td className="px-4 py-1.5 text-right"><span className="text-[10px] font-bold text-green-500">{unit === 'KGS' ? inK.toFixed(2) : inP}</span></td>
-                            <td className="px-4 py-1.5 text-right"><span className="text-[10px] font-bold text-blue-500">{unit === 'KGS' ? outK.toFixed(2) : outP}</span></td>
-                            <td className="px-6 py-1.5 text-right bg-red-50/5"><span className="text-[10px] font-black text-red-500/70">{unit === 'KGS' ? edK.toFixed(2) : edP}</span></td>
+                            <td className="px-4 py-1.5 text-right"><span className="text-[10px] font-medium text-gray-500">{unit === 'KGS' ? formatNumber(opK, 2) : formatNumber(opP, 0)}</span></td>
+                            <td className="px-4 py-1.5 text-right"><span className="text-[10px] font-bold text-green-500">{unit === 'KGS' ? formatNumber(inK, 2) : formatNumber(inP, 0)}</span></td>
+                            <td className="px-4 py-1.5 text-right"><span className="text-[10px] font-bold text-blue-500">{unit === 'KGS' ? formatNumber(outK, 2) : formatNumber(outP, 0)}</span></td>
+                            <td className="px-6 py-1.5 text-right bg-red-50/5"><span className="text-[10px] font-black text-red-500/70">{unit === 'KGS' ? formatNumber(edK, 2) : formatNumber(edP, 0)}</span></td>
                           </tr>
                         );
                       })}
@@ -358,16 +359,16 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
                   <tr>
                     <td className="px-6 py-2 text-[10px] font-black uppercase">Grand Total ({unit})</td>
                     <td className="px-4 py-2 text-right text-[11px] font-black">
-                      {unit === 'KGS' ? filteredData.reduce((a,b) => a + b.openingKgs, 0).toFixed(2) : filteredData.reduce((a,b) => a + b.openingPcs, 0)}
+                      {unit === 'KGS' ? formatNumber(filteredData.reduce((a,b) => a + b.openingKgs, 0), 2) : formatNumber(filteredData.reduce((a,b) => a + b.openingPcs, 0), 0)}
                     </td>
                     <td className="px-4 py-2 text-right text-[11px] font-black text-green-400">
-                      {unit === 'KGS' ? filteredData.reduce((a,b) => a + b.inKgs, 0).toFixed(2) : filteredData.reduce((a,b) => a + b.inPcs, 0)}
+                      {unit === 'KGS' ? formatNumber(filteredData.reduce((a,b) => a + b.inKgs, 0), 2) : formatNumber(filteredData.reduce((a,b) => a + b.inPcs, 0), 0)}
                     </td>
                     <td className="px-4 py-2 text-right text-[11px] font-black text-blue-400">
-                      {unit === 'KGS' ? filteredData.reduce((a,b) => a + b.outKgs, 0).toFixed(2) : filteredData.reduce((a,b) => a + b.outPcs, 0)}
+                      {unit === 'KGS' ? formatNumber(filteredData.reduce((a,b) => a + b.outKgs, 0), 2) : formatNumber(filteredData.reduce((a,b) => a + b.outPcs, 0), 0)}
                     </td>
                     <td className="px-6 py-2 text-right text-[11px] font-black text-red-400">
-                      {unit === 'KGS' ? filteredData.reduce((a,b) => a + b.endingKgs, 0).toFixed(2) : filteredData.reduce((a,b) => a + b.endingPcs, 0)}
+                      {unit === 'KGS' ? formatNumber(filteredData.reduce((a,b) => a + b.endingKgs, 0), 2) : formatNumber(filteredData.reduce((a,b) => a + b.endingPcs, 0), 0)}
                     </td>
                   </tr>
                 </tfoot>

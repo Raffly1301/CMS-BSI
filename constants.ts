@@ -2,7 +2,7 @@
 import { InflowSource, OutflowDestination } from './types';
 
 export const INFLOW_SOURCES: InflowSource[] = [
-  'FPS', 'Marinasi', 'SMS', 'Boneless', 'Retur', 'Parting', 'CS'
+  'PDS', 'FPS', 'PARTING', 'MARINASI', 'BONELESS', 'SO FRESH', 'IQF', 'RETUR', 'SMS', 'CS'
 ];
 
 export const OUTFLOW_DESTINATIONS: OutflowDestination[] = [

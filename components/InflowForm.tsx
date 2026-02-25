@@ -44,6 +44,7 @@ const InflowForm: React.FC<InflowFormProps> = ({ onSubmitBatch }) => {
     productionDate: new Date().toISOString().split('T')[0],
     slaughteringDate: new Date().toISOString().split('T')[0],
     source: 'FPS' as InflowSource,
+    allocation: 'FPS' as InflowSource,
     isWIP: false
   });
 
@@ -269,20 +270,39 @@ const InflowForm: React.FC<InflowFormProps> = ({ onSubmitBatch }) => {
                </div>
             </div>
 
-            <div className="space-y-1">
-              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
-                <ArrowDownToLine size={14} className="text-red-600" />
-                Sumber Barang
-              </label>
-              <div className="relative">
-                <select
-                  className="w-full appearance-none bg-gray-50 border-2 border-gray-100 rounded-xl px-4 py-3 focus:border-red-600 outline-none font-bold cursor-pointer"
-                  value={formData.source}
-                  onChange={(e) => setFormData(prev => ({ ...prev, source: e.target.value as InflowSource }))}
-                >
-                  {INFLOW_SOURCES.map(src => <option key={src} value={src}>{src}</option>)}
-                </select>
-                <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={18} />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                  <ArrowDownToLine size={14} className="text-red-600" />
+                  Sumber Barang
+                </label>
+                <div className="relative">
+                  <select
+                    className="w-full appearance-none bg-gray-50 border-2 border-gray-100 rounded-xl px-4 py-3 focus:border-red-600 outline-none font-bold cursor-pointer"
+                    value={formData.source}
+                    onChange={(e) => setFormData(prev => ({ ...prev, source: e.target.value as InflowSource }))}
+                  >
+                    {INFLOW_SOURCES.map(src => <option key={src} value={src}>{src}</option>)}
+                  </select>
+                  <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={18} />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                  <Layers size={14} className="text-red-600" />
+                  Alokasi Barang
+                </label>
+                <div className="relative">
+                  <select
+                    className="w-full appearance-none bg-gray-50 border-2 border-gray-100 rounded-xl px-4 py-3 focus:border-red-600 outline-none font-bold cursor-pointer"
+                    value={formData.allocation}
+                    onChange={(e) => setFormData(prev => ({ ...prev, allocation: e.target.value as InflowSource }))}
+                  >
+                    {INFLOW_SOURCES.map(src => <option key={src} value={src}>{src}</option>)}
+                  </select>
+                  <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={18} />
+                </div>
               </div>
             </div>
           </div>
@@ -328,7 +348,7 @@ const InflowForm: React.FC<InflowFormProps> = ({ onSubmitBatch }) => {
                     <tr>
                       <th className="px-4 py-2 text-[9px] font-black text-gray-400 uppercase tracking-wider">Item</th>
                       <th className="px-4 py-2 text-[9px] font-black text-gray-400 uppercase tracking-wider text-right">Qty/Wght</th>
-                      <th className="px-4 py-2 text-[9px] font-black text-gray-400 uppercase tracking-wider">Source</th>
+                      <th className="px-4 py-2 text-[9px] font-black text-gray-400 uppercase tracking-wider">Src/Aloc</th>
                       <th className="px-4 py-2 text-[9px] font-black text-gray-400 uppercase tracking-wider"></th>
                     </tr>
                   </thead>
@@ -347,7 +367,10 @@ const InflowForm: React.FC<InflowFormProps> = ({ onSubmitBatch }) => {
                           <div className="text-[9px] font-bold text-gray-400">{item.kgs.toFixed(2)} Kg</div>
                         </td>
                         <td className="px-4 py-2">
-                          <span className="bg-gray-100 text-gray-600 text-[8px] font-black px-1.5 py-0.5 rounded-md uppercase">{item.source}</span>
+                          <div className="flex flex-col gap-1">
+                            <span className="bg-gray-100 text-gray-600 text-[8px] font-black px-1.5 py-0.5 rounded-md uppercase w-fit">S: {item.source}</span>
+                            <span className="bg-red-50 text-red-600 text-[8px] font-black px-1.5 py-0.5 rounded-md uppercase w-fit">A: {item.allocation}</span>
+                          </div>
                         </td>
                         <td className="px-4 py-2 text-right">
                           <button onClick={() => removeDraftItem(idx)} className="text-gray-300 hover:text-red-600 transition-colors">

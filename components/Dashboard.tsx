@@ -1,6 +1,7 @@
 
 import React, { useMemo } from 'react';
 import { ChillerItem, ViewState, Transaction } from '../types';
+import { formatNumber } from '@/utils';
 import { 
   Package, 
   ArrowDownToLine, 
@@ -62,10 +63,10 @@ const Dashboard: React.FC<DashboardProps> = ({ items, transactions, onNavigate }
   }, [transactions]);
 
   const stats = [
-    { label: 'Stok Saat Ini', value: inChiller.length, sub: `${totalWeight.toFixed(1)} Kgs`, icon: Package, color: 'bg-red-500' },
-    { label: 'Masuk Hari Ini', value: totalInToday, sub: 'Items', icon: ArrowDownToLine, color: 'bg-green-500' },
-    { label: 'Keluar Hari Ini', value: totalOutToday, sub: 'Items', icon: ArrowUpFromLine, color: 'bg-blue-500' },
-    { label: 'Total Transaksi', value: transactions.length, sub: 'All Time', icon: Clock, color: 'bg-amber-500' },
+    { label: 'Stok Saat Ini', value: formatNumber(inChiller.length, 0), sub: `${formatNumber(totalWeight, 2)} Kgs`, icon: Package, color: 'bg-red-500' },
+    { label: 'Masuk Hari Ini', value: formatNumber(totalInToday, 0), sub: 'Items', icon: ArrowDownToLine, color: 'bg-green-500' },
+    { label: 'Keluar Hari Ini', value: formatNumber(totalOutToday, 0), sub: 'Items', icon: ArrowUpFromLine, color: 'bg-blue-500' },
+    { label: 'Total Transaksi', value: formatNumber(transactions.length, 0), sub: 'All Time', icon: Clock, color: 'bg-amber-500' },
   ];
 
   return (

@@ -2,6 +2,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { ChillerItem, OutflowDestination, InflowSource, User } from '../types';
 import { OUTFLOW_DESTINATIONS, INFLOW_SOURCES } from '../constants';
+import { formatNumber } from '@/utils';
 import { 
   ArrowUpFromLine, 
   Search, 
@@ -145,11 +146,11 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
         </div>
         <div className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm flex flex-col">
           <p className="text-[7px] font-black text-gray-400 uppercase tracking-widest">Total Quantity</p>
-          <div className="flex items-baseline gap-1.5"><span className="text-xl font-black text-red-600">{totals.pcs.toLocaleString()}</span><span className="text-[9px] font-bold text-gray-400">Pcs</span></div>
+          <div className="flex items-baseline gap-1.5"><span className="text-xl font-black text-red-600">{formatNumber(totals.pcs, 0)}</span><span className="text-[9px] font-bold text-gray-400">Pcs</span></div>
         </div>
         <div className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm flex flex-col col-span-2 md:col-span-1">
           <p className="text-[7px] font-black text-gray-400 uppercase tracking-widest">Total Berat</p>
-          <div className="flex items-baseline gap-1.5"><span className="text-xl font-black text-red-600">{totals.kgs.toFixed(2)}</span><span className="text-[9px] font-bold text-gray-400">Kgs</span></div>
+          <div className="flex items-baseline gap-1.5"><span className="text-xl font-black text-red-600">{formatNumber(totals.kgs, 2)}</span><span className="text-[9px] font-bold text-gray-400">Kgs</span></div>
         </div>
       </div>
 
@@ -180,71 +181,76 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
               key={item.id} 
               onClick={() => toggleSelection(item.id)} 
               className={`
-                group relative bg-white rounded-2xl overflow-hidden border-2 transition-all flex flex-col md:flex-row md:items-stretch
+                group relative bg-white rounded-2xl overflow-hidden border-2 transition-all flex flex-col
                 ${isPendingQC ? 'border-amber-400 bg-amber-50/20' : isSelected ? 'border-red-500 bg-red-50/20' : 'border-gray-50 hover:border-red-200 shadow-sm'}
                 ${isPendingQC ? 'cursor-default' : 'cursor-pointer'}
               `}
             >
-              <div className={`hidden md:block w-1.5 ${isPendingQC ? 'bg-amber-400' : isSelected ? 'bg-red-500' : 'bg-transparent'}`} />
-              <div className="flex-1 flex flex-col p-4 md:p-3 gap-3">
+              <div className="flex-1 flex flex-col p-3 gap-2">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-1.5">
-                    <span className="bg-red-100 text-red-700 text-[8px] font-black uppercase px-2 py-0.5 rounded">ASAL: {item.source}</span>
-                    {item.isWIP && <span className="bg-amber-100 text-amber-700 text-[8px] font-black px-2 py-0.5 rounded">WIP</span>}
-                    {isPendingQC && (
-                      <span className="bg-amber-500 text-white text-[8px] font-black px-2 py-0.5 rounded flex items-center gap-1 uppercase animate-pulse">
-                        <AlertTriangle size={10} /> Persetujuan Admin
-                      </span>
-                    )}
+                    <span className="bg-red-50 text-red-600 text-[7px] font-black uppercase px-1.5 py-0.5 rounded border border-red-100">S: {item.source}</span>
+                    <span className="bg-blue-50 text-blue-600 text-[7px] font-black uppercase px-1.5 py-0.5 rounded border border-blue-100">A: {item.allocation}</span>
+                    {item.isWIP && <span className="bg-amber-100 text-amber-700 text-[7px] font-black px-1.5 py-0.5 rounded">WIP</span>}
                   </div>
-                  <span className="text-[8px] font-black text-gray-300 group-hover:text-red-400 transition-colors truncate max-w-[180px] text-right uppercase">{item.batchId}</span>
+                  <span className="text-[7px] font-bold text-gray-300 uppercase tracking-tighter">{item.batchId}</span>
                 </div>
                 
-                <div className="flex flex-col md:flex-row md:items-center gap-3 md:gap-4 flex-1">
+                <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-4">
                   <div className="flex-1 min-w-0">
-                    <h3 className="text-base md:text-sm font-black text-gray-800 truncate uppercase mb-1">{item.itemCode}</h3>
-                    <div className="text-[10px] font-bold text-gray-500 truncate mb-2">{item.itemName}</div>
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                      <div className="flex items-center gap-1"><span className="text-[8px] font-black text-gray-400 uppercase">PD:</span><span className="text-[9px] font-bold text-gray-600">{item.productionDate}</span></div>
-                      <div className="flex items-center gap-1"><span className="text-[8px] font-black text-gray-400 uppercase">SD:</span><span className="text-[9px] font-bold text-gray-600">{item.slaughteringDate}</span></div>
+                    <h3 className="text-sm md:text-base font-black text-gray-900 uppercase leading-tight">{item.itemCode}</h3>
+                    <div className="text-[9px] font-bold text-gray-500 truncate mt-0.5">{item.itemName}</div>
+                    <div className="flex items-center gap-3 mt-1.5">
+                      <div className="flex items-center gap-1"><span className="text-[7px] font-black text-gray-400 uppercase">PD:</span><span className="text-[8px] font-bold text-gray-600">{item.productionDate}</span></div>
+                      <div className="flex items-center gap-1"><span className="text-[7px] font-black text-gray-400 uppercase">SD:</span><span className="text-[8px] font-bold text-gray-600">{item.slaughteringDate}</span></div>
                     </div>
                   </div>
                   
-                  <div className="flex items-center gap-0 bg-gray-50 rounded-xl border border-gray-100 overflow-hidden divide-x divide-gray-100">
-                    <div className="flex flex-col px-4 py-2"><span className="text-[7px] font-black text-gray-400 uppercase mb-1">Qty</span><span className="text-xs font-black text-gray-700">{item.pcs} Pcs</span></div>
-                    <div className="flex flex-col px-4 py-2"><span className="text-[7px] font-black text-gray-400 uppercase mb-1">Weight</span><span className="text-xs font-black text-gray-700">{item.kgs.toFixed(2)} Kg</span></div>
-                  </div>
+                  <div className="flex items-center gap-4 md:gap-6">
+                    <div className="flex items-center bg-gray-50/80 px-3 py-2 rounded-xl border border-gray-100 gap-4">
+                      <div className="flex flex-col items-center">
+                        <span className="text-[6px] font-black text-gray-400 uppercase mb-0.5">Qty</span>
+                        <span className="text-xs font-black text-gray-800">{formatNumber(item.pcs, 0)} <span className="text-[8px] text-gray-400">Pcs</span></span>
+                      </div>
+                      <div className="w-px h-6 bg-gray-200" />
+                      <div className="flex flex-col items-center">
+                        <span className="text-[6px] font-black text-gray-400 uppercase mb-0.5">Weight</span>
+                        <span className="text-xs font-black text-gray-800">{formatNumber(item.kgs, 2)} <span className="text-[8px] text-gray-400">Kg</span></span>
+                      </div>
+                    </div>
 
-                  <div className="flex gap-2 w-full md:w-auto md:ml-auto">
-                    {isPendingQC ? (
-                      (userRole === 'ADMINQC' || userRole === 'SUPERADMIN') ? (
-                        <div className="flex gap-1.5 w-full md:w-auto">
-                           <button 
-                            onClick={(e) => { e.stopPropagation(); onQCReject(item.id); }} 
-                            className="flex-1 md:flex-none bg-white text-gray-400 border border-gray-200 font-black px-4 py-2 rounded-xl flex items-center justify-center gap-2 hover:bg-gray-50 transition-colors uppercase text-[10px]"
-                          >
-                            <XCircle size={14} /> Tolak
-                          </button>
-                          <button 
-                            onClick={(e) => { e.stopPropagation(); onQCApprove(item.id); }} 
-                            className="flex-1 md:flex-none bg-red-600 text-white font-black px-4 py-2 rounded-xl flex items-center justify-center gap-2 hover:bg-red-700 transition-colors uppercase text-[10px] shadow-lg shadow-red-100"
-                          >
-                            <ShieldCheck size={14} /> Setujui
-                          </button>
-                        </div>
+                    <div className="flex-1 md:flex-none">
+                      {isPendingQC ? (
+                        (userRole === 'ADMINQC' || userRole === 'SUPERADMIN') ? (
+                          <div className="flex gap-1">
+                             <button 
+                              onClick={(e) => { e.stopPropagation(); onQCReject(item.id); }} 
+                              className="p-2 bg-white text-gray-400 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                              title="Tolak"
+                            >
+                              <XCircle size={16} />
+                            </button>
+                            <button 
+                              onClick={(e) => { e.stopPropagation(); onQCApprove(item.id); }} 
+                              className="bg-red-600 text-white font-black px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-red-700 transition-colors uppercase text-[9px] shadow-lg shadow-red-100"
+                            >
+                              <ShieldCheck size={14} /> APPROVE
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="px-3 py-2 bg-amber-50 text-amber-600 font-black text-[8px] rounded-lg flex items-center gap-1.5 border border-amber-200 uppercase">
+                             <ShieldAlert size={12} /> PENDING QC
+                          </div>
+                        )
                       ) : (
-                        <div className="w-full md:w-auto px-6 py-2 bg-amber-50 text-amber-600 font-black text-[10px] rounded-xl flex items-center justify-center gap-2 border border-amber-200 uppercase">
-                           <ShieldAlert size={14} /> Menunggu Persetujuan
-                        </div>
-                      )
-                    ) : (
-                      <button 
-                        onClick={(e) => { e.stopPropagation(); setSelectedItemForSingleOut(item); }} 
-                        className="w-full md:w-auto bg-red-600 text-white font-black px-6 py-3 md:py-2 rounded-xl flex items-center justify-center gap-2 hover:bg-red-700 transition-colors uppercase text-[10px] shadow-lg shadow-red-100"
-                      >
-                        <ArrowUpFromLine size={14} /> Keluar
-                      </button>
-                    )}
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); setSelectedItemForSingleOut(item); }} 
+                          className="w-full md:w-auto bg-red-600 text-white font-black px-5 py-2.5 rounded-xl flex items-center justify-center gap-2 hover:bg-red-700 transition-all active:scale-95 uppercase text-[10px] shadow-lg shadow-red-200 group-hover:shadow-red-300"
+                        >
+                          <ArrowUpFromLine size={14} /> KELUAR
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>

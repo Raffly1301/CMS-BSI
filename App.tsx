@@ -94,6 +94,7 @@ const App: React.FC = () => {
           productionDate: item.production_date,
           slaughteringDate: item.slaughtering_date,
           source: item.source || 'FPS',
+          allocation: item.allocation || 'FPS',
           entryTimestamp: new Date(item.created_at).getTime(),
           exitTimestamp: lastOut ? lastOut.timestamp : undefined,
           status: (
@@ -157,6 +158,7 @@ const App: React.FC = () => {
           status: 'IN',
           created_by: user.id, 
           source: item.source,
+          allocation: item.allocation,
           status_WIP: item.isWIP || false
         });
         if (stockErr) throw stockErr;
