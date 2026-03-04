@@ -43,8 +43,8 @@ const InflowForm: React.FC<InflowFormProps> = ({ onSubmitBatch }) => {
     kgs: 0,
     productionDate: new Date().toISOString().split('T')[0],
     slaughteringDate: new Date().toISOString().split('T')[0],
-    source: 'FPS' as InflowSource,
-    allocation: 'FPS' as InflowSource,
+    source: 'PDS' as InflowSource,
+    allocation: 'PDS' as InflowSource,
     isWIP: false
   });
 

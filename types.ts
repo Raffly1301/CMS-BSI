@@ -68,4 +68,16 @@ export interface ItemMaster {
   created_at?: string;
 }
 
-export type ViewState = 'DASHBOARD' | 'INFLOW' | 'INVENTORY' | 'REPORTS' | 'DAILY_REPORT' | 'ITEM_DATABASE';
+export interface VirtualInventory {
+  id: string;
+  destination: string;
+  items_id: string;
+  quantity_pcs: number;
+  quantity_kgs: number;
+  updated_at: string;
+  // Join fields
+  item_name?: string;
+  item_code?: string;
+}
+
+export type ViewState = 'DASHBOARD' | 'INFLOW' | 'INVENTORY' | 'REPORTS' | 'DAILY_REPORT' | 'ITEM_DATABASE' | 'VIRTUAL_INVENTORY';

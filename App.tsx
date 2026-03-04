@@ -12,7 +12,8 @@ import {
   User as UserIcon, 
   ChevronLast, 
   ChevronFirst,
-  Database
+  Database,
+  Layers
 } from 'lucide-react';
 import { ViewState, ChillerItem, Transaction, SystemLog, User, OutflowDestination } from './types';
 import Dashboard from './components/Dashboard';
@@ -21,6 +22,7 @@ import InventoryList from './components/InventoryList';
 import Reports from './components/Reports';
 import DailyStockReport from './components/DailyStockReport';
 import ItemDatabase from './components/ItemDatabase';
+import VirtualInventoryList from './components/VirtualInventoryList';
 import LoginForm from './components/LoginForm';
 import { supabase } from './lib/supabase';
 
@@ -135,6 +137,63 @@ const App: React.FC = () => {
     }
   }, [isAuthenticated, fetchData]);
 
+  const updateVirtualStock = async (destination: string, itemsId: string, pcs: number, kgs: number, type: 'ADD' | 'SUBTRACT') => {
+    try {
+      // Fetch all records for this destination to aggregate them into one "per section" record
+      const { data: records, error: fetchError } = await supabase
+        .from('virtual_inventory')
+        .select('*')
+        .eq('destination', destination);
+
+      if (fetchError) throw fetchError;
+
+      let totalPcs = 0;
+      let totalKgs = 0;
+      let targetId = null;
+
+      if (records && records.length > 0) {
+        // Sum everything up from existing records (handles migration from item-based to section-based)
+        totalPcs = records.reduce((sum, r) => sum + (r.quantity_pcs || 0), 0);
+        totalKgs = records.reduce((sum, r) => sum + Number(r.quantity_kgs || 0), 0);
+        targetId = records[0].id;
+
+        // If there are multiple records (old item-based data), consolidate them
+        if (records.length > 1) {
+          const idsToDelete = records.slice(1).map(r => r.id);
+          await supabase.from('virtual_inventory').delete().in('id', idsToDelete);
+        }
+      }
+
+      const newPcs = type === 'ADD' ? totalPcs + pcs : totalPcs - pcs;
+      const newKgs = type === 'ADD' ? totalKgs + kgs : totalKgs - kgs;
+
+      if (targetId) {
+        const { error: updateError } = await supabase
+          .from('virtual_inventory')
+          .update({
+            quantity_pcs: Math.max(0, newPcs),
+            quantity_kgs: Math.max(0, newKgs),
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', targetId);
+        if (updateError) throw updateError;
+      } else if (type === 'ADD') {
+        const { error: insertError } = await supabase
+          .from('virtual_inventory')
+          .insert({
+            destination,
+            items_id: itemsId,
+            quantity_pcs: Math.max(0, pcs),
+            quantity_kgs: Math.max(0, kgs),
+            updated_at: new Date().toISOString()
+          });
+        if (insertError) throw insertError;
+      }
+    } catch (err: any) {
+      console.error("Virtual Inventory Update Error:", err);
+    }
+  };
+
   const handleInflow = async (newItems: Omit<ChillerItem, 'id' | 'batchId' | 'entryTimestamp' | 'status' | 'itemCode'>[]) => {
     if (!user) return;
     for (const item of newItems) {
@@ -176,6 +235,24 @@ const App: React.FC = () => {
           transaction_time: new Date().toISOString()
         });
         if (trxErr) throw trxErr;
+
+        // Virtual Inventory Update: If source is a virtual location, subtract from it
+        const sourceToDestMap: Record<string, string> = {
+          'PARTING': 'Parting',
+          'MARINASI': 'Marinasi',
+          'BONELESS': 'Boneless',
+          'RETUR': 'Retur',
+          'THOWING': 'Thowing',
+          'FPS': 'FPS',
+          'SMS': 'SMS',
+          'IQF': 'IQF',
+          'CS': 'CS'
+        };
+        
+        const mappedSource = sourceToDestMap[item.source.toUpperCase()];
+        if (mappedSource) {
+          await updateVirtualStock(mappedSource, item.itemsId, item.pcs, item.kgs, 'SUBTRACT');
+        }
       } catch (err) { console.error("Inflow Error:", err); }
     }
     fetchData(true);
@@ -251,6 +328,12 @@ const App: React.FC = () => {
       });
       
       if (trxErr) throw trxErr;
+
+      // Virtual Inventory Update: If destination is NOT 'Delive' or 'Condem', add to it
+      if (destination !== 'Delive' && destination !== 'Condem') {
+        await updateVirtualStock(destination, item.itemsId, actualPcs, actualKgs, 'ADD');
+      }
+
       fetchData(true);
     } catch (err) { 
       console.error("Outflow Error:", err);
@@ -372,6 +455,7 @@ const App: React.FC = () => {
     { name: 'Stok Chiller', view: 'INVENTORY' as ViewState, icon: ThermometerSnowflake },
     ...(user?.role?.toUpperCase() !== 'USER' ? [{ name: 'Laporan & Log', view: 'REPORTS' as ViewState, icon: ClipboardList }] : []),
     { name: 'Stok Harian', view: 'DAILY_REPORT' as ViewState, icon: BarChart3 },
+    { name: 'Inventory', view: 'VIRTUAL_INVENTORY' as ViewState, icon: Layers },
     ...(user?.role?.toUpperCase() === 'ADMIN' || user?.role?.toUpperCase() === 'SUPERADMIN' ? [{ name: 'Database Item', view: 'ITEM_DATABASE' as ViewState, icon: Database }] : []),
   ];
 
@@ -509,6 +593,7 @@ const App: React.FC = () => {
             {activeView === 'REPORTS' && <Reports items={chillerTable} transactions={transactionTable} logs={logTable} users={[user!]} />}
             {activeView === 'DAILY_REPORT' && <DailyStockReport items={chillerTable} transactions={transactionTable} />}
             {activeView === 'ITEM_DATABASE' && <ItemDatabase user={user} />}
+            {activeView === 'VIRTUAL_INVENTORY' && <VirtualInventoryList />}
           </div>
         )}
       </main>
