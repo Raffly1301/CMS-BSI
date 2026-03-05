@@ -43,6 +43,7 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
   const [outKgs, setOutKgs] = useState<number>(0);
 
   const [filterSource, setFilterSource] = useState<InflowSource | 'ALL'>('ALL');
+  const [filterAllocation, setFilterAllocation] = useState<InflowSource | 'ALL'>('ALL');
   const [filterWIP, setFilterWIP] = useState<'ALL' | 'WIP' | 'REGULAR'>('ALL');
   const [filterProdDate, setFilterProdDate] = useState('');
   const [filterSlaughterDate, setFilterSlaughterDate] = useState('');
@@ -51,8 +52,43 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
     if (selectedItemForSingleOut) {
       setOutPcs(selectedItemForSingleOut.pcs);
       setOutKgs(selectedItemForSingleOut.kgs);
+      
+      // Set default destination based on allocation
+      const allocation = selectedItemForSingleOut.allocation;
+      const matchedDest = OUTFLOW_DESTINATIONS.find(
+        d => d.toUpperCase() === allocation.toUpperCase()
+      );
+      
+      if (matchedDest) {
+        setDestination(matchedDest);
+      } else if (allocation === 'PDS' || allocation === 'SO FRESH') {
+        setDestination('Delive');
+      }
     }
   }, [selectedItemForSingleOut]);
+
+  useEffect(() => {
+    if (isBatchOutModalOpen && selectedItemIds.length > 0) {
+      // Check if all selected items have the same allocation
+      const selectedItems = items.filter(i => selectedItemIds.includes(i.id));
+      if (selectedItems.length > 0) {
+        const firstAllocation = selectedItems[0].allocation;
+        const allSameAllocation = selectedItems.every(i => i.allocation === firstAllocation);
+        
+        if (allSameAllocation) {
+          const matchedDest = OUTFLOW_DESTINATIONS.find(
+            d => d.toUpperCase() === firstAllocation.toUpperCase()
+          );
+          
+          if (matchedDest) {
+            setDestination(matchedDest);
+          } else if (firstAllocation === 'PDS' || firstAllocation === 'SO FRESH') {
+            setDestination('Delive');
+          }
+        }
+      }
+    }
+  }, [isBatchOutModalOpen, selectedItemIds, items]);
 
   const filteredItems = useMemo(() => {
     return items.filter(i => {
@@ -64,6 +100,7 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
         i.id.toLowerCase().includes(searchTerm.toLowerCase());
       
       const matchesSource = filterSource === 'ALL' || i.source === filterSource;
+      const matchesAllocation = filterAllocation === 'ALL' || i.allocation === filterAllocation;
       const matchesWIP = 
         filterWIP === 'ALL' || 
         (filterWIP === 'WIP' && i.isWIP) || 
@@ -72,9 +109,9 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
       const matchesProdDate = !filterProdDate || i.productionDate === filterProdDate;
       const matchesSlaughterDate = !filterSlaughterDate || i.slaughteringDate === filterSlaughterDate;
 
-      return matchesSearch && matchesSource && matchesWIP && matchesProdDate && matchesSlaughterDate;
+      return matchesSearch && matchesSource && matchesAllocation && matchesWIP && matchesProdDate && matchesSlaughterDate;
     });
-  }, [items, searchTerm, filterSource, filterWIP, filterProdDate, filterSlaughterDate]);
+  }, [items, searchTerm, filterSource, filterAllocation, filterWIP, filterProdDate, filterSlaughterDate]);
 
   const totals = useMemo(() => {
     return filteredItems.reduce((acc, curr) => ({
@@ -86,6 +123,7 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
   const resetFilters = () => {
     setSearchTerm('');
     setFilterSource('ALL');
+    setFilterAllocation('ALL');
     setFilterWIP('ALL');
     setFilterProdDate('');
     setFilterSlaughterDate('');
@@ -155,11 +193,17 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
       </div>
 
       {showFilters && (
-        <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm grid grid-cols-2 md:grid-cols-4 gap-4 animate-in slide-in-from-top-2">
+        <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 animate-in slide-in-from-top-2">
           <div className="space-y-1"><label className="text-[9px] font-black text-gray-400 uppercase">Sumber</label><select className="w-full bg-gray-50 border border-gray-100 rounded-lg px-2 py-1 text-xs font-bold" value={filterSource} onChange={(e) => setFilterSource(e.target.value as any)}><option value="ALL">SEMUA</option>{INFLOW_SOURCES.map(s => <option key={s} value={s}>{s}</option>)}</select></div>
+          <div className="space-y-1"><label className="text-[9px] font-black text-gray-400 uppercase">Alokasi</label><select className="w-full bg-gray-50 border border-gray-100 rounded-lg px-2 py-1 text-xs font-bold" value={filterAllocation} onChange={(e) => setFilterAllocation(e.target.value as any)}><option value="ALL">SEMUA</option>{INFLOW_SOURCES.map(s => <option key={s} value={s}>{s}</option>)}</select></div>
           <div className="space-y-1"><label className="text-[9px] font-black text-gray-400 uppercase">WIP</label><select className="w-full bg-gray-50 border border-gray-100 rounded-lg px-2 py-1 text-xs font-bold" value={filterWIP} onChange={(e) => setFilterWIP(e.target.value as any)}><option value="ALL">SEMUA</option><option value="WIP">WIP</option><option value="REGULAR">REGULAR</option></select></div>
           <div className="space-y-1"><label className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Tgl Produksi</label><input type="date" className="w-full bg-gray-50 border border-gray-100 rounded-lg px-2 py-1 text-xs font-bold outline-none" value={filterProdDate} onChange={(e) => setFilterProdDate(e.target.value)} /></div>
-          <div className="space-y-1 flex flex-col justify-end"><label className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Tgl Potong</label><div className="flex gap-2"><input type="date" className="flex-1 bg-gray-50 border border-gray-100 rounded-lg px-2 py-1 text-xs font-bold outline-none" value={filterSlaughterDate} onChange={(e) => setFilterSlaughterDate(e.target.value)} /><button onClick={resetFilters} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"><RotateCcw size={16} /></button></div></div>
+          <div className="space-y-1"><label className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Tgl Potong</label><input type="date" className="w-full bg-gray-50 border border-gray-100 rounded-lg px-2 py-1 text-xs font-bold outline-none" value={filterSlaughterDate} onChange={(e) => setFilterSlaughterDate(e.target.value)} /></div>
+          <div className="flex items-end pb-1">
+            <button onClick={resetFilters} className="w-full flex items-center justify-center gap-2 py-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors border border-dashed border-gray-200 text-[9px] font-black uppercase">
+              <RotateCcw size={12} /> Reset
+            </button>
+          </div>
         </div>
       )}
 

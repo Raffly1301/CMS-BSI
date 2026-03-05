@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { VirtualInventory } from '../types';
 import { supabase } from '../lib/supabase';
 import { 
@@ -9,14 +9,25 @@ import {
   History,
   TrendingUp,
   TrendingDown,
-  Layers
+  Layers,
+  ArrowUpDown,
+  ChevronUp,
+  ChevronDown,
+  Filter,
+  Clock
 } from 'lucide-react';
+import { formatNumber } from '@/utils';
+
+type SortField = 'item_name' | 'item_code' | 'quantity_pcs' | 'quantity_kgs' | 'updated_at' | 'destination';
+type SortOrder = 'asc' | 'desc';
 
 const VirtualInventoryList: React.FC = () => {
   const [inventory, setInventory] = useState<VirtualInventory[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterDestination, setFilterDestination] = useState<string>('ALL');
+  const [sortField, setSortField] = useState<SortField>('updated_at');
+  const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
 
   useEffect(() => {
     fetchVirtualInventory();
@@ -27,13 +38,24 @@ const VirtualInventoryList: React.FC = () => {
     try {
       const { data, error } = await supabase
         .from('virtual_inventory')
-        .select('*')
+        .select(`
+          *,
+          items:items_id (
+            code,
+            description
+          )
+        `)
         .order('updated_at', { ascending: false });
 
       if (error) throw error;
 
       if (data) {
-        setInventory(data as VirtualInventory[]);
+        const mappedData = data.map((item: any) => ({
+          ...item,
+          item_name: item.items?.description || 'N/A',
+          item_code: item.items?.code || 'N/A'
+        }));
+        setInventory(mappedData as VirtualInventory[]);
       }
     } catch (err) {
       console.error("Error fetching virtual inventory:", err);
@@ -42,23 +64,57 @@ const VirtualInventoryList: React.FC = () => {
     }
   };
 
-  const destinations = ['ALL', ...Array.from(new Set(inventory.map(i => i.destination)))];
+  const destinations = useMemo(() => {
+    return ['ALL', ...Array.from(new Set(inventory.map(i => i.destination)))].sort();
+  }, [inventory]);
 
-  const summaryByLocation = inventory.reduce((acc, item) => {
-    if (!acc[item.destination]) {
-      acc[item.destination] = { pcs: 0, kgs: 0, items: 0 };
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortOrder('asc');
     }
-    acc[item.destination].pcs += item.quantity_pcs;
-    acc[item.destination].kgs += item.quantity_kgs;
-    acc[item.destination].items += 1;
-    return acc;
-  }, {} as Record<string, { pcs: number, kgs: number, items: number }>);
+  };
 
-  const filteredInventory = inventory.filter(item => {
-    const matchesSearch = item.destination.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesDest = filterDestination === 'ALL' || item.destination === filterDestination;
-    return matchesSearch && matchesDest;
-  });
+  const filteredAndSortedInventory = useMemo(() => {
+    let result = inventory.filter(item => {
+      const searchLower = searchQuery.toLowerCase();
+      const matchesSearch = 
+        item.destination.toLowerCase().includes(searchLower) ||
+        (item.item_name || '').toLowerCase().includes(searchLower) ||
+        (item.item_code || '').toLowerCase().includes(searchLower);
+      
+      const matchesDest = filterDestination === 'ALL' || item.destination === filterDestination;
+      return matchesSearch && matchesDest;
+    });
+
+    result.sort((a, b) => {
+      let valA: any = a[sortField] || '';
+      let valB: any = b[sortField] || '';
+
+      if (typeof valA === 'string') valA = valA.toLowerCase();
+      if (typeof valB === 'string') valB = valB.toLowerCase();
+
+      if (valA < valB) return sortOrder === 'asc' ? -1 : 1;
+      if (valA > valB) return sortOrder === 'asc' ? 1 : -1;
+      return 0;
+    });
+
+    return result;
+  }, [inventory, searchQuery, filterDestination, sortField, sortOrder]);
+
+  const summaryByLocation = useMemo(() => {
+    return inventory.reduce((acc, item) => {
+      if (!acc[item.destination]) {
+        acc[item.destination] = { pcs: 0, kgs: 0, items: 0 };
+      }
+      acc[item.destination].pcs += item.quantity_pcs;
+      acc[item.destination].kgs += item.quantity_kgs;
+      acc[item.destination].items += 1;
+      return acc;
+    }, {} as Record<string, { pcs: number, kgs: number, items: number }>);
+  }, [inventory]);
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
@@ -67,7 +123,7 @@ const VirtualInventoryList: React.FC = () => {
           <div className="flex items-center gap-4">
             <h2 className="text-2xl font-black text-gray-900 tracking-tight uppercase flex items-center gap-3">
               <Layers className="text-red-600" />
-              Virtual Inventory
+              Inventory
             </h2>
             <button 
               onClick={fetchVirtualInventory}
@@ -85,22 +141,25 @@ const VirtualInventoryList: React.FC = () => {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
             <input
               type="text"
-              placeholder="Cari lokasi..."
-              className="pl-10 pr-4 py-2 bg-white border-2 border-gray-100 rounded-xl focus:border-red-600 outline-none font-bold text-sm transition-all w-full sm:w-64"
+              placeholder="Cari item atau lokasi..."
+              className="pl-10 pr-4 py-2 bg-white border-2 border-gray-100 rounded-xl focus:border-red-600 outline-none font-bold text-sm transition-all w-full sm:w-72"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
           
-          <select
-            className="bg-white border-2 border-gray-100 rounded-xl px-4 py-2 font-bold text-sm outline-none focus:border-red-600 cursor-pointer"
-            value={filterDestination}
-            onChange={(e) => setFilterDestination(e.target.value)}
-          >
-            {destinations.map(dest => (
-              <option key={dest} value={dest}>{dest === 'ALL' ? 'Semua Lokasi' : dest}</option>
-            ))}
-          </select>
+          <div className="relative">
+            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+            <select
+              className="pl-9 pr-4 py-2 bg-white border-2 border-gray-100 rounded-xl font-bold text-sm outline-none focus:border-red-600 cursor-pointer appearance-none w-full"
+              value={filterDestination}
+              onChange={(e) => setFilterDestination(e.target.value)}
+            >
+              {destinations.map(dest => (
+                <option key={dest} value={dest}>{dest === 'ALL' ? 'Semua Lokasi' : dest}</option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
@@ -111,8 +170,8 @@ const VirtualInventoryList: React.FC = () => {
             <TrendingUp size={24} />
           </div>
           <div>
-            <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-0.5">Total Lokasi Aktif</p>
-            <p className="text-xl font-black text-gray-900 leading-none">{filteredInventory.length}</p>
+            <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-0.5">Total Item Terdaftar</p>
+            <p className="text-xl font-black text-gray-900 leading-none">{filteredAndSortedInventory.length}</p>
           </div>
         </div>
         
@@ -123,7 +182,7 @@ const VirtualInventoryList: React.FC = () => {
           <div>
             <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-0.5">Total Pcs</p>
             <p className="text-xl font-black text-gray-900 leading-none">
-              {filteredInventory.reduce((sum, item) => sum + item.quantity_pcs, 0).toLocaleString()}
+              {filteredAndSortedInventory.reduce((sum, item) => sum + item.quantity_pcs, 0).toLocaleString()}
             </p>
           </div>
         </div>
@@ -135,7 +194,7 @@ const VirtualInventoryList: React.FC = () => {
           <div>
             <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-0.5">Total Berat (Kg)</p>
             <p className="text-xl font-black text-gray-900 leading-none">
-              {filteredInventory.reduce((sum, item) => sum + item.quantity_kgs, 0).toFixed(2)}
+              {filteredAndSortedInventory.reduce((sum, item) => sum + item.quantity_kgs, 0).toFixed(2)}
             </p>
           </div>
         </div>
@@ -197,6 +256,132 @@ const VirtualInventoryList: React.FC = () => {
               </div>
             </div>
           )}
+        </div>
+      </div>
+
+      {/* Detailed Inventory Table */}
+      <div className="bg-white rounded-[2.5rem] border border-gray-100 shadow-2xl shadow-gray-200/50 overflow-hidden">
+        <div className="p-6 border-b border-gray-50 flex items-center justify-between bg-gray-50/30">
+          <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest flex items-center gap-2">
+            <div className="bg-red-600 p-1 rounded-md text-white">
+              <Package size={14} />
+            </div>
+            Detail Inventori
+          </h3>
+          <span className="text-[10px] font-black text-gray-400 uppercase bg-white px-3 py-1 rounded-full border border-gray-100">
+            {filteredAndSortedInventory.length} Baris
+          </span>
+        </div>
+        
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-gray-50/50">
+                <th className="px-6 py-4">
+                  <button 
+                    onClick={() => handleSort('item_code')}
+                    className="flex items-center gap-2 text-[10px] font-black text-gray-400 uppercase tracking-widest hover:text-red-600 transition-colors"
+                  >
+                    Kode Item
+                    <ArrowUpDown size={12} className={sortField === 'item_code' ? 'text-red-600' : ''} />
+                  </button>
+                </th>
+                <th className="px-6 py-4">
+                  <button 
+                    onClick={() => handleSort('item_name')}
+                    className="flex items-center gap-2 text-[10px] font-black text-gray-400 uppercase tracking-widest hover:text-red-600 transition-colors"
+                  >
+                    Nama Item
+                    <ArrowUpDown size={12} className={sortField === 'item_name' ? 'text-red-600' : ''} />
+                  </button>
+                </th>
+                <th className="px-6 py-4">
+                  <button 
+                    onClick={() => handleSort('destination')}
+                    className="flex items-center gap-2 text-[10px] font-black text-gray-400 uppercase tracking-widest hover:text-red-600 transition-colors"
+                  >
+                    Lokasi
+                    <ArrowUpDown size={12} className={sortField === 'destination' ? 'text-red-600' : ''} />
+                  </button>
+                </th>
+                <th className="px-6 py-4">
+                  <button 
+                    onClick={() => handleSort('quantity_pcs')}
+                    className="flex items-center gap-2 text-[10px] font-black text-gray-400 uppercase tracking-widest hover:text-red-600 transition-colors"
+                  >
+                    Qty (Pcs)
+                    <ArrowUpDown size={12} className={sortField === 'quantity_pcs' ? 'text-red-600' : ''} />
+                  </button>
+                </th>
+                <th className="px-6 py-4">
+                  <button 
+                    onClick={() => handleSort('quantity_kgs')}
+                    className="flex items-center gap-2 text-[10px] font-black text-gray-400 uppercase tracking-widest hover:text-red-600 transition-colors"
+                  >
+                    Berat (Kg)
+                    <ArrowUpDown size={12} className={sortField === 'quantity_kgs' ? 'text-red-600' : ''} />
+                  </button>
+                </th>
+                <th className="px-6 py-4">
+                  <button 
+                    onClick={() => handleSort('updated_at')}
+                    className="flex items-center gap-2 text-[10px] font-black text-gray-400 uppercase tracking-widest hover:text-red-600 transition-colors"
+                  >
+                    Terakhir Update
+                    <ArrowUpDown size={12} className={sortField === 'updated_at' ? 'text-red-600' : ''} />
+                  </button>
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {filteredAndSortedInventory.map((item) => (
+                <tr key={item.id} className="hover:bg-red-50/30 transition-colors group">
+                  <td className="px-6 py-4">
+                    <span className="text-xs font-black text-gray-900 bg-gray-100 px-2 py-1 rounded-md group-hover:bg-white transition-colors">
+                      {item.item_code}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4">
+                    <p className="text-xs font-bold text-gray-700">{item.item_name}</p>
+                  </td>
+                  <td className="px-6 py-4">
+                    <span className="text-[10px] font-black text-red-600 uppercase bg-red-50 px-2 py-1 rounded-lg border border-red-100">
+                      {item.destination}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4">
+                    <p className="text-sm font-black text-gray-900">{formatNumber(item.quantity_pcs, 0)}</p>
+                  </td>
+                  <td className="px-6 py-4">
+                    <p className="text-sm font-black text-gray-900">{formatNumber(item.quantity_kgs, 2)}</p>
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="flex items-center gap-2 text-gray-400">
+                      <Clock size={12} />
+                      <span className="text-[10px] font-bold">
+                        {new Date(item.updated_at).toLocaleString('id-ID', { 
+                          day: '2-digit', 
+                          month: 'short', 
+                          hour: '2-digit', 
+                          minute: '2-digit' 
+                        })}
+                      </span>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {filteredAndSortedInventory.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-6 py-20 text-center">
+                    <div className="flex flex-col items-center gap-3 opacity-20">
+                      <Search size={48} />
+                      <p className="text-sm font-black uppercase tracking-widest">Tidak ada item yang ditemukan</p>
+                    </div>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
