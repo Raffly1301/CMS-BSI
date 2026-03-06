@@ -36,7 +36,10 @@ interface StockRow {
 }
 
 const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions }) => {
-  const [selectedDate, setSelectedDate] = useState<string>(
+  const [startDate, setStartDate] = useState<string>(
+    new Date().toISOString().split('T')[0]
+  );
+  const [endDate, setEndDate] = useState<string>(
     new Date().toISOString().split('T')[0]
   );
   const [unit, setUnit] = useState<'KGS' | 'PCS'>('KGS');
@@ -45,8 +48,8 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
   const reportRef = useRef<HTMLDivElement>(null);
 
   const reportData = useMemo(() => {
-    const startOfDay = new Date(selectedDate).setHours(0, 0, 0, 0);
-    const endOfDay = new Date(selectedDate).setHours(23, 59, 59, 999);
+    const startRange = new Date(startDate).setHours(0, 0, 0, 0);
+    const endRange = new Date(endDate).setHours(23, 59, 59, 999);
 
     const itemCodes: string[] = Array.from(new Set(items.map(i => i.itemCode)));
     const rows: StockRow[] = [];
@@ -58,18 +61,18 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
       const groupTrx = transactions.filter(t => groupBatchIds.has(t.chillerId));
       const sumT = (arr: Transaction[], key: 'kgs' | 'pcs') => arr.reduce((acc, curr) => acc + (curr[key] || 0), 0);
 
-      // Opening Stock: (Total IN before day) - (Total OUT before day)
-      const beforeInK = sumT(groupTrx.filter(t => t.type === 'IN' && t.timestamp < startOfDay), 'kgs');
-      const beforeOutK = sumT(groupTrx.filter(t => t.type === 'OUT' && t.timestamp < startOfDay), 'kgs');
+      // Opening Stock: (Total IN before range) - (Total OUT before range)
+      const beforeInK = sumT(groupTrx.filter(t => t.type === 'IN' && t.timestamp < startRange), 'kgs');
+      const beforeOutK = sumT(groupTrx.filter(t => t.type === 'OUT' && t.timestamp < startRange), 'kgs');
       const openingKgs = beforeInK - beforeOutK;
 
-      const beforeInP = sumT(groupTrx.filter(t => t.type === 'IN' && t.timestamp < startOfDay), 'pcs');
-      const beforeOutP = sumT(groupTrx.filter(t => t.type === 'OUT' && t.timestamp < startOfDay), 'pcs');
+      const beforeInP = sumT(groupTrx.filter(t => t.type === 'IN' && t.timestamp < startRange), 'pcs');
+      const beforeOutP = sumT(groupTrx.filter(t => t.type === 'OUT' && t.timestamp < startRange), 'pcs');
       const openingPcs = beforeInP - beforeOutP;
 
-      // Movements during the day
-      const dayInTrx = groupTrx.filter(t => t.type === 'IN' && t.timestamp >= startOfDay && t.timestamp <= endOfDay);
-      const dayOutTrx = groupTrx.filter(t => t.type === 'OUT' && t.timestamp >= startOfDay && t.timestamp <= endOfDay);
+      // Movements during the range
+      const dayInTrx = groupTrx.filter(t => t.type === 'IN' && t.timestamp >= startRange && t.timestamp <= endRange);
+      const dayOutTrx = groupTrx.filter(t => t.type === 'OUT' && t.timestamp >= startRange && t.timestamp <= endRange);
 
       const inKgs = sumT(dayInTrx, 'kgs');
       const inPcs = sumT(dayInTrx, 'pcs');
@@ -109,14 +112,14 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
     });
 
     return rows;
-  }, [items, selectedDate]);
+  }, [items, startDate, endDate]);
 
   // Secondary useMemo to get WIP batch breakdown when expanded
   const wipBreakdown = useMemo(() => {
     if (!isWIPExpanded) return [];
     
-    const startOfDay = new Date(selectedDate).setHours(0, 0, 0, 0);
-    const endOfDay = new Date(selectedDate).setHours(23, 59, 59, 999);
+    const startRange = new Date(startDate).setHours(0, 0, 0, 0);
+    const endRange = new Date(endDate).setHours(23, 59, 59, 999);
     
     const wipItems = items.filter(i => !!i.isWIP);
     
@@ -124,16 +127,16 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
         const batchTrx = transactions.filter(t => t.chillerId === i.batchId);
         const sumT = (arr: Transaction[], key: 'kgs' | 'pcs') => arr.reduce((acc, curr) => acc + (curr[key] || 0), 0);
 
-        const beforeIn = sumT(batchTrx.filter(t => t.type === 'IN' && t.timestamp < startOfDay), 'kgs');
-        const beforeOut = sumT(batchTrx.filter(t => t.type === 'OUT' && t.timestamp < startOfDay), 'kgs');
+        const beforeIn = sumT(batchTrx.filter(t => t.type === 'IN' && t.timestamp < startRange), 'kgs');
+        const beforeOut = sumT(batchTrx.filter(t => t.type === 'OUT' && t.timestamp < startRange), 'kgs');
         const opening = beforeIn - beforeOut;
 
-        const dayIn = sumT(batchTrx.filter(t => t.type === 'IN' && t.timestamp >= startOfDay && t.timestamp <= endOfDay), 'kgs');
-        const dayOut = sumT(batchTrx.filter(t => t.type === 'OUT' && t.timestamp >= startOfDay && t.timestamp <= endOfDay), 'kgs');
+        const dayIn = sumT(batchTrx.filter(t => t.type === 'IN' && t.timestamp >= startRange && t.timestamp <= endRange), 'kgs');
+        const dayOut = sumT(batchTrx.filter(t => t.type === 'OUT' && t.timestamp >= startRange && t.timestamp <= endRange), 'kgs');
 
         return opening > 0 || dayIn > 0 || dayOut > 0;
     });
-  }, [items, transactions, selectedDate, isWIPExpanded]);
+  }, [items, transactions, startDate, endDate, isWIPExpanded]);
 
   const filteredData = reportData.filter(row => 
     row.name.toLowerCase().includes(searchTerm.toLowerCase())
@@ -149,19 +152,21 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
       unit === 'KGS' ? r.endingKgs.toFixed(2) : r.endingPcs,
     ]);
 
-    const worksheet = XLSX.utils.aoa_to_sheet([["LAPORAN STOK HARIAN", selectedDate], [], headers, ...rows]);
+    const dateLabel = startDate === endDate ? startDate : `${startDate}_to_${endDate}`;
+    const worksheet = XLSX.utils.aoa_to_sheet([["LAPORAN STOK HARIAN", dateLabel], [], headers, ...rows]);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Daily Stock");
-    XLSX.writeFile(workbook, `laporan_stok_${selectedDate}.xlsx`);
+    XLSX.writeFile(workbook, `laporan_stok_${dateLabel}.xlsx`);
   };
 
   const downloadPDF = () => {
     const element = document.getElementById('report-export-area');
     if (!element) return;
 
+    const dateLabel = startDate === endDate ? startDate : `${startDate}_to_${endDate}`;
     const opt = {
       margin: 10,
-      filename: `laporan_stok_harian_${selectedDate}.pdf`,
+      filename: `laporan_stok_harian_${dateLabel}.pdf`,
       image: { type: 'jpeg', quality: 0.98 },
       html2canvas: { scale: 2, useCORS: true },
       jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
@@ -194,17 +199,27 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
       </header>
 
       {/* Filter Bar */}
-      <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="space-y-1.5">
+      <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="space-y-1.5 lg:col-span-1">
           <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
             <Calendar size={12} className="text-red-600" /> Tanggal Laporan
           </label>
-          <input 
-            type="date"
-            className="w-full px-4 py-2.5 bg-gray-50 border-2 border-transparent rounded-xl focus:bg-white focus:border-red-600 outline-none transition-all font-bold text-xs text-gray-700"
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-          />
+          <div className="grid grid-cols-2 gap-2">
+            <input 
+              type="date"
+              className="w-full px-3 py-2 bg-gray-50 border-2 border-transparent rounded-xl focus:bg-white focus:border-red-600 outline-none transition-all font-bold text-[10px] text-gray-700"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              title="Dari Tanggal"
+            />
+            <input 
+              type="date"
+              className="w-full px-3 py-2 bg-gray-50 border-2 border-transparent rounded-xl focus:bg-white focus:border-red-600 outline-none transition-all font-bold text-[10px] text-gray-700"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              title="Sampai Tanggal"
+            />
+          </div>
         </div>
 
         <div className="space-y-1.5">
@@ -253,7 +268,10 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
           <div className="flex items-center gap-2">
             <div className="w-2 h-2 rounded-full bg-red-600 animate-pulse" />
             <span className="text-[10px] font-black text-gray-900 uppercase tracking-widest">
-              Data Tanggal: {new Date(selectedDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
+              Periode: {startDate === endDate 
+                ? new Date(startDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })
+                : `${new Date(startDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })} - ${new Date(endDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}`
+              }
             </span>
           </div>
           <div className="text-[10px] font-black text-gray-400 uppercase tracking-widest hidden md:block">
@@ -269,8 +287,13 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
                    <p className="text-xs font-bold text-gray-500 uppercase">Bounty Segar Indonesia</p>
                 </div>
                 <div className="text-right">
-                   <p className="text-[10px] font-black text-gray-400 uppercase">Tanggal Laporan</p>
-                   <p className="text-xs font-bold text-gray-900">{new Date(selectedDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
+                   <p className="text-[10px] font-black text-gray-400 uppercase">Periode Laporan</p>
+                   <p className="text-xs font-bold text-gray-900">
+                     {startDate === endDate 
+                       ? new Date(startDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })
+                       : `${new Date(startDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })} - ${new Date(endDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}`
+                     }
+                   </p>
                 </div>
              </div>
           </div>
@@ -317,20 +340,20 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
                       </tr>
 
                       {isWIPRow && isWIPExpanded && wipBreakdown.map((batch, bIdx) => {
-                        const startOfDay = new Date(selectedDate).setHours(0, 0, 0, 0);
-                        const endOfDay = new Date(selectedDate).setHours(23, 59, 59, 999);
+                        const startRange = new Date(startDate).setHours(0, 0, 0, 0);
+                        const endRange = new Date(endDate).setHours(23, 59, 59, 999);
                         
                         const batchTrx = transactions.filter(t => t.chillerId === batch.batchId);
                         const sumT = (arr: Transaction[], key: 'kgs' | 'pcs') => arr.reduce((acc, curr) => acc + (curr[key] || 0), 0);
 
-                        const opK = sumT(batchTrx.filter(t => t.type === 'IN' && t.timestamp < startOfDay), 'kgs') - sumT(batchTrx.filter(t => t.type === 'OUT' && t.timestamp < startOfDay), 'kgs');
-                        const opP = sumT(batchTrx.filter(t => t.type === 'IN' && t.timestamp < startOfDay), 'pcs') - sumT(batchTrx.filter(t => t.type === 'OUT' && t.timestamp < startOfDay), 'pcs');
+                        const opK = sumT(batchTrx.filter(t => t.type === 'IN' && t.timestamp < startRange), 'kgs') - sumT(batchTrx.filter(t => t.type === 'OUT' && t.timestamp < startRange), 'kgs');
+                        const opP = sumT(batchTrx.filter(t => t.type === 'IN' && t.timestamp < startRange), 'pcs') - sumT(batchTrx.filter(t => t.type === 'OUT' && t.timestamp < startRange), 'pcs');
                         
-                        const inK = sumT(batchTrx.filter(t => t.type === 'IN' && t.timestamp >= startOfDay && t.timestamp <= endOfDay), 'kgs');
-                        const inP = sumT(batchTrx.filter(t => t.type === 'IN' && t.timestamp >= startOfDay && t.timestamp <= endOfDay), 'pcs');
+                        const inK = sumT(batchTrx.filter(t => t.type === 'IN' && t.timestamp >= startRange && t.timestamp <= endRange), 'kgs');
+                        const inP = sumT(batchTrx.filter(t => t.type === 'IN' && t.timestamp >= startRange && t.timestamp <= endRange), 'pcs');
                         
-                        const outK = sumT(batchTrx.filter(t => t.type === 'OUT' && t.timestamp >= startOfDay && t.timestamp <= endOfDay), 'kgs');
-                        const outP = sumT(batchTrx.filter(t => t.type === 'OUT' && t.timestamp >= startOfDay && t.timestamp <= endOfDay), 'pcs');
+                        const outK = sumT(batchTrx.filter(t => t.type === 'OUT' && t.timestamp >= startRange && t.timestamp <= endRange), 'kgs');
+                        const outP = sumT(batchTrx.filter(t => t.type === 'OUT' && t.timestamp >= startRange && t.timestamp <= endRange), 'pcs');
                         
                         const edK = opK + inK - outK;
                         const edP = opP + inP - outP;
