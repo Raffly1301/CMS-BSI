@@ -48,6 +48,26 @@ const InflowForm: React.FC<InflowFormProps> = ({ onSubmitBatch }) => {
     isWIP: false
   });
 
+  // Multiple quantity & weight rows in form
+  const [qtyRows, setQtyRows] = useState<{ pcs: number; kgs: number }[]>([{ pcs: 0, kgs: 0 }]);
+
+  const handleQtyRowChange = (index: number, field: 'pcs' | 'kgs', value: number) => {
+    setQtyRows(prev => prev.map((row, i) => {
+      if (i === index) {
+        return { ...row, [field]: value };
+      }
+      return row;
+    }));
+  };
+
+  const handleAddQtyRow = () => {
+    setQtyRows(prev => [...prev, { pcs: 0, kgs: 0 }]);
+  };
+
+  const handleRemoveQtyRow = (index: number) => {
+    setQtyRows(prev => prev.filter((_, i) => i !== index));
+  };
+
   useEffect(() => {
     fetchItems();
     
@@ -80,21 +100,33 @@ const InflowForm: React.FC<InflowFormProps> = ({ onSubmitBatch }) => {
 
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.itemsId || formData.pcs <= 0 || formData.kgs <= 0) {
-      alert('Mohon pilih produk dan isi kuantitas dengan benar.');
+    const validRows = qtyRows.filter(row => row.pcs > 0 && row.kgs > 0);
+    
+    if (!formData.itemsId || validRows.length === 0) {
+      alert('Mohon pilih produk dan isi kuantitas (Pcs & Kg) dengan benar.');
       return;
     }
 
     if (isBatchMode) {
-      // Fix: the setDraftItems now correctly matches the type that omits itemCode
-      setDraftItems(prev => [...prev, { ...formData }]);
-      setFormData(prev => ({ ...prev, itemsId: '', itemName: '', pcs: 0, kgs: 0, isWIP: false }));
-      setSearchQuery('');
+      const newDrafts = validRows.map(row => ({
+        ...formData,
+        pcs: row.pcs,
+        kgs: row.kgs
+      }));
+      setDraftItems(prev => [...prev, ...newDrafts]);
+      // Reset only quantity rows to keep product name of draft items selected
+      setQtyRows([{ pcs: 0, kgs: 0 }]);
     } else {
-      // Fix: the onSubmitBatch now correctly matches the type that omits itemCode
-      onSubmitBatch([{ ...formData }]);
+      const newItems = validRows.map(row => ({
+        ...formData,
+        pcs: row.pcs,
+        kgs: row.kgs
+      }));
+      onSubmitBatch(newItems);
+      setQtyRows([{ pcs: 0, kgs: 0 }]);
     }
   };
+
 
   const removeDraftItem = (index: number) => {
     setDraftItems(prev => prev.filter((_, i) => i !== index));
@@ -157,7 +189,10 @@ const InflowForm: React.FC<InflowFormProps> = ({ onSubmitBatch }) => {
                   >
                     <span className={formData.itemsId ? 'text-gray-800' : 'text-gray-400'}>
                       {formData.itemsId 
-                        ? availableItems.find(i => i.id === formData.itemsId)?.description || 'Terpilih'
+                        ? (() => {
+                            const found = availableItems.find(i => i.id === formData.itemsId);
+                            return found ? `${found.code} - ${found.description}` : 'Terpilih';
+                          })()
                         : 'Pilih Produk...'}
                     </span>
                     <ChevronDown className={`text-gray-400 transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`} size={18} />
@@ -184,7 +219,7 @@ const InflowForm: React.FC<InflowFormProps> = ({ onSubmitBatch }) => {
                             <div 
                               key={item.id}
                               onClick={() => {
-                                setFormData(prev => ({ ...prev, itemsId: item.id, itemName: item.description }));
+                                setFormData(prev => ({ ...prev, itemsId: item.id, itemName: `${item.code} - ${item.description}` }));
                                 setIsDropdownOpen(false);
                                 setSearchQuery('');
                               }}
@@ -215,31 +250,61 @@ const InflowForm: React.FC<InflowFormProps> = ({ onSubmitBatch }) => {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1">
-                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
-                  <Calculator size={14} className="text-red-600" />
-                  Qty (Pcs)
-                </label>
-                <input
-                  type="number"
-                  className="w-full bg-gray-50 border-2 border-gray-100 rounded-xl px-4 py-3 focus:border-red-600 transition-all outline-none font-bold"
-                  value={formData.pcs || ''}
-                  onChange={(e) => setFormData(prev => ({ ...prev, pcs: parseInt(e.target.value) || 0 }))}
-                />
+            <div className="space-y-3">
+              <div className="flex items-center justify-between pl-1">
+                <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest text-[#9ca3af]">Detail Baris Kuantitas (Pcs &amp; Kg)</span>
+                <button
+                  type="button"
+                  onClick={handleAddQtyRow}
+                  className="flex items-center gap-1.5 text-[10px] font-black text-red-600 uppercase hover:text-red-700 transition-colors bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-lg border border-red-100"
+                >
+                  <Plus size={12} />
+                  Tambah Baris
+                </button>
               </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
-                  <Scale size={14} className="text-red-600" />
-                  Berat (Kg)
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  className="w-full bg-gray-50 border-2 border-gray-100 rounded-xl px-4 py-3 focus:border-red-600 transition-all outline-none font-bold"
-                  value={formData.kgs || ''}
-                  onChange={(e) => setFormData(prev => ({ ...prev, kgs: parseFloat(e.target.value) || 0 }))}
-                />
+
+              <div className="space-y-2">
+                {qtyRows.map((row, idx) => (
+                  <div key={idx} className="flex gap-3 items-center animate-in fade-in duration-200">
+                    <div className="flex-1 relative">
+                      <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 z-10 flex items-center pointer-events-none">
+                        <Calculator size={14} className="text-red-600" />
+                      </div>
+                      <input
+                        type="number"
+                        placeholder="Qty (Pcs)"
+                        className="w-full bg-gray-50 border-2 border-gray-100 rounded-xl pl-9 pr-4 py-3 focus:border-red-600 focus:bg-white transition-all outline-none font-bold text-sm"
+                        value={row.pcs || ''}
+                        onChange={(e) => handleQtyRowChange(idx, 'pcs', parseInt(e.target.value) || 0)}
+                      />
+                    </div>
+                    
+                    <div className="flex-1 relative">
+                      <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 z-10 flex items-center pointer-events-none">
+                        <Scale size={14} className="text-red-600" />
+                      </div>
+                      <input
+                        type="number"
+                        step="0.01"
+                        placeholder="Berat (Kg)"
+                        className="w-full bg-gray-50 border-2 border-gray-100 rounded-xl pl-9 pr-4 py-3 focus:border-red-600 focus:bg-white transition-all outline-none font-bold text-sm"
+                        value={row.kgs || ''}
+                        onChange={(e) => handleQtyRowChange(idx, 'kgs', parseFloat(e.target.value) || 0)}
+                      />
+                    </div>
+
+                    {qtyRows.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveQtyRow(idx)}
+                        className="p-3 bg-gray-50 hover:bg-red-50 hover:text-red-600 border border-gray-100 hover:border-red-100 text-gray-400 rounded-xl transition-all"
+                        title="Hapus Baris"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    )}
+                  </div>
+                ))}
               </div>
             </div>
 
