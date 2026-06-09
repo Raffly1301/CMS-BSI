@@ -2,13 +2,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ChillerItem, InflowSource } from '../types';
 import { INFLOW_SOURCES } from '../constants';
-import { 
-  Save, 
-  Calendar, 
-  ChevronDown, 
-  Package2, 
-  Scale, 
-  Calculator, 
+import {
+  Save,
+  Calendar,
+  ChevronDown,
+  Package2,
+  Scale,
+  Calculator,
   ArrowDownToLine,
   Plus,
   Trash2,
@@ -27,10 +27,10 @@ interface InflowFormProps {
 
 const InflowForm: React.FC<InflowFormProps> = ({ onSubmitBatch }) => {
   const [isBatchMode, setIsBatchMode] = useState(false);
-  const [availableItems, setAvailableItems] = useState<{id: string, code: string, description: string}[]>([]);
+  const [availableItems, setAvailableItems] = useState<{ id: string, code: string, description: string, is_active?: boolean }[]>([]);
   // Fix: Omit itemCode from draftItems state to match formData structure and onSubmitBatch prop
   const [draftItems, setDraftItems] = useState<Omit<ChillerItem, 'id' | 'batchId' | 'entryTimestamp' | 'status' | 'itemCode'>[]>([]);
-  
+
   // Searchable Dropdown States
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -70,7 +70,7 @@ const InflowForm: React.FC<InflowFormProps> = ({ onSubmitBatch }) => {
 
   useEffect(() => {
     fetchItems();
-    
+
     // Click outside listener for dropdown
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
@@ -85,13 +85,14 @@ const InflowForm: React.FC<InflowFormProps> = ({ onSubmitBatch }) => {
     try {
       const { data, error } = await supabase
         .from('items')
-        .select('id, code, description')
+        .select('*')
         .order('code', { ascending: true });
-        
+
       if (error) {
         console.error("Supabase Error (Table items):", error.message);
       } else if (data) {
-        setAvailableItems(data);
+        const activeItems = data.filter((item: any) => item.is_active !== false);
+        setAvailableItems(activeItems);
       }
     } catch (err) {
       console.error("Connection Error:", err);
@@ -101,7 +102,7 @@ const InflowForm: React.FC<InflowFormProps> = ({ onSubmitBatch }) => {
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const validRows = qtyRows.filter(row => row.pcs > 0 && row.kgs > 0);
-    
+
     if (!formData.itemsId || validRows.length === 0) {
       alert('Mohon pilih produk dan isi kuantitas (Pcs & Kg) dengan benar.');
       return;
@@ -138,8 +139,8 @@ const InflowForm: React.FC<InflowFormProps> = ({ onSubmitBatch }) => {
     setDraftItems([]);
   };
 
-  const filteredDropdownItems = availableItems.filter(item => 
-    item.code.toLowerCase().includes(searchQuery.toLowerCase()) || 
+  const filteredDropdownItems = availableItems.filter(item =>
+    item.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
     item.description.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
@@ -180,19 +181,19 @@ const InflowForm: React.FC<InflowFormProps> = ({ onSubmitBatch }) => {
                   <Package2 size={14} className="text-red-600" />
                   Nama Produk (Code)
                 </label>
-                
+
                 {/* Custom Searchable Dropdown */}
                 <div className="relative">
-                  <div 
+                  <div
                     onClick={() => setIsDropdownOpen(!isDropdownOpen)}
                     className={`w-full bg-gray-50 border-2 rounded-xl px-4 py-3 transition-all outline-none font-bold cursor-pointer flex items-center justify-between ${isDropdownOpen ? 'border-red-600 ring-4 ring-red-100' : 'border-gray-100'}`}
                   >
                     <span className={formData.itemsId ? 'text-gray-800' : 'text-gray-400'}>
-                      {formData.itemsId 
+                      {formData.itemsId
                         ? (() => {
-                            const found = availableItems.find(i => i.id === formData.itemsId);
-                            return found ? `${found.code} - ${found.description}` : 'Terpilih';
-                          })()
+                          const found = availableItems.find(i => i.id === formData.itemsId);
+                          return found ? `${found.code} - ${found.description}` : 'Terpilih';
+                        })()
                         : 'Pilih Produk...'}
                     </span>
                     <ChevronDown className={`text-gray-400 transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`} size={18} />
@@ -203,7 +204,7 @@ const InflowForm: React.FC<InflowFormProps> = ({ onSubmitBatch }) => {
                       <div className="p-3 border-b border-gray-50">
                         <div className="relative">
                           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                          <input 
+                          <input
                             autoFocus
                             type="text"
                             placeholder="Cari kode atau nama..."
@@ -216,7 +217,7 @@ const InflowForm: React.FC<InflowFormProps> = ({ onSubmitBatch }) => {
                       <div className="max-h-60 overflow-y-auto">
                         {filteredDropdownItems.length > 0 ? (
                           filteredDropdownItems.map(item => (
-                            <div 
+                            <div
                               key={item.id}
                               onClick={() => {
                                 setFormData(prev => ({ ...prev, itemsId: item.id, itemName: `${item.code} - ${item.description}` }));
@@ -278,7 +279,7 @@ const InflowForm: React.FC<InflowFormProps> = ({ onSubmitBatch }) => {
                         onChange={(e) => handleQtyRowChange(idx, 'pcs', parseInt(e.target.value) || 0)}
                       />
                     </div>
-                    
+
                     <div className="flex-1 relative">
                       <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 z-10 flex items-center pointer-events-none">
                         <Scale size={14} className="text-red-600" />
@@ -309,30 +310,30 @@ const InflowForm: React.FC<InflowFormProps> = ({ onSubmitBatch }) => {
             </div>
 
             <div className="grid grid-cols-2 gap-4">
-               <div className="space-y-1">
-                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
-                   <Calendar size={14} className="text-red-600" />
-                   Tgl Produksi
-                 </label>
-                 <input
-                   type="date"
-                   className="w-full bg-gray-50 border-2 border-gray-100 rounded-xl px-4 py-3 focus:border-red-600 outline-none font-bold"
-                   value={formData.productionDate}
-                   onChange={(e) => setFormData(prev => ({ ...prev, productionDate: e.target.value }))}
-                 />
-               </div>
-               <div className="space-y-1">
-                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
-                   <Calendar size={14} className="text-red-600" />
-                   Tgl Potong
-                 </label>
-                 <input
-                   type="date"
-                   className="w-full bg-gray-50 border-2 border-gray-100 rounded-xl px-4 py-3 focus:border-red-600 outline-none font-bold"
-                   value={formData.slaughteringDate}
-                   onChange={(e) => setFormData(prev => ({ ...prev, slaughteringDate: e.target.value }))}
-                 />
-               </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                  <Calendar size={14} className="text-red-600" />
+                  Tgl Produksi
+                </label>
+                <input
+                  type="date"
+                  className="w-full bg-gray-50 border-2 border-gray-100 rounded-xl px-4 py-3 focus:border-red-600 outline-none font-bold"
+                  value={formData.productionDate}
+                  onChange={(e) => setFormData(prev => ({ ...prev, productionDate: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                  <Calendar size={14} className="text-red-600" />
+                  Tgl Potong
+                </label>
+                <input
+                  type="date"
+                  className="w-full bg-gray-50 border-2 border-gray-100 rounded-xl px-4 py-3 focus:border-red-600 outline-none font-bold"
+                  value={formData.slaughteringDate}
+                  onChange={(e) => setFormData(prev => ({ ...prev, slaughteringDate: e.target.value }))}
+                />
+              </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -385,18 +386,18 @@ const InflowForm: React.FC<InflowFormProps> = ({ onSubmitBatch }) => {
       {isBatchMode && (
         <div className="lg:col-span-7 flex flex-col space-y-4 animate-in slide-in-from-right duration-300">
           <div className="flex justify-between items-center">
-             <h3 className="text-lg font-bold text-gray-800 uppercase flex items-center gap-3">
-               Antrian Batch
-               <span className="bg-red-600 text-white text-[10px] px-2 py-0.5 rounded-full">{draftItems.length}</span>
-             </h3>
-             {draftItems.length > 0 && (
-               <button 
-                  onClick={() => setDraftItems([])}
-                  className="text-[10px] font-bold text-gray-400 hover:text-red-600 flex items-center gap-1 uppercase"
-               >
-                  <Trash2 size={12} /> Hapus Semua
-               </button>
-             )}
+            <h3 className="text-lg font-bold text-gray-800 uppercase flex items-center gap-3">
+              Antrian Batch
+              <span className="bg-red-600 text-white text-[10px] px-2 py-0.5 rounded-full">{draftItems.length}</span>
+            </h3>
+            {draftItems.length > 0 && (
+              <button
+                onClick={() => setDraftItems([])}
+                className="text-[10px] font-bold text-gray-400 hover:text-red-600 flex items-center gap-1 uppercase"
+              >
+                <Trash2 size={12} /> Hapus Semua
+              </button>
+            )}
           </div>
 
           <div className="flex-1 bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden flex flex-col min-h-[400px]">
@@ -451,13 +452,13 @@ const InflowForm: React.FC<InflowFormProps> = ({ onSubmitBatch }) => {
 
             {draftItems.length > 0 && (
               <div className="p-4 bg-red-50 border-t border-red-100">
-                 <button
+                <button
                   onClick={submitFinalBatch}
                   className="w-full bg-red-600 text-white font-black py-3 rounded-xl shadow-xl shadow-red-200 hover:bg-red-700 active:scale-95 transition-all flex items-center justify-center gap-3 uppercase text-xs"
-                 >
-                   <CheckCircle2 className="w-5 h-5" />
-                   Konfirmasi & Simpan Batch
-                 </button>
+                >
+                  <CheckCircle2 className="w-5 h-5" />
+                  Konfirmasi & Simpan Batch
+                </button>
               </div>
             )}
           </div>

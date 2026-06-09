@@ -1,6 +1,6 @@
-
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -11,10 +11,12 @@
   <meta name="apple-mobile-web-app-title" content="BSI CMS">
   <link rel="apple-touch-icon" href="/BSI PWA.png">
   <link rel="manifest" href="/manifest.json">
-  
+
   <script src="https://cdn.tailwindcss.com"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Lora:ital,wght@0,400..700;1,400..700&display=swap" rel="stylesheet">
-  
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Lora:ital,wght@0,400..700;1,400..700&display=swap"
+    rel="stylesheet">
+
   <!-- PDF & Excel Libraries -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
@@ -25,9 +27,11 @@
       -webkit-tap-highlight-color: transparent;
       overscroll-behavior-y: contain;
     }
+
     .font-brand {
       font-family: 'Lora', serif;
     }
+
     input[type="date"]::-webkit-calendar-picker-indicator {
       filter: invert(15%) sepia(95%) saturate(6932%) hue-rotate(358deg) brightness(95%) contrast(112%);
     }
@@ -35,37 +39,49 @@
     ::-webkit-scrollbar {
       width: 6px;
     }
+
     ::-webkit-scrollbar-track {
       background: transparent;
     }
+
     ::-webkit-scrollbar-thumb {
       background: #e5e7eb;
       border-radius: 10px;
     }
+
     ::-webkit-scrollbar-thumb:hover {
       background: #d1d5db;
     }
 
     @media print {
-      aside, nav, button, header .flex-items-center, .action-buttons, .mobile-nav {
+
+      aside,
+      nav,
+      button,
+      header .flex-items-center,
+      .action-buttons,
+      .mobile-nav {
         display: none !important;
       }
+
       body {
         background: white !important;
         padding: 0 !important;
         margin: 0 !important;
       }
+
       main {
         padding: 0 !important;
         margin: 0 !important;
       }
+
       table {
         font-size: 10pt !important;
         width: 100% !important;
       }
     }
   </style>
-<script type="importmap">
+  <script type="importmap">
 {
   "imports": {
     "lucide-react": "https://esm.sh/lucide-react@^0.563.0",
@@ -79,9 +95,11 @@
 }
 </script>
 </head>
+
 <body class="bg-gray-50 text-gray-900">
   <div id="root"></div>
   <!-- CRITICAL: Memuat file entry point aplikasi -->
   <script type="module" src="./index.tsx"></script>
 </body>
+
 </html>

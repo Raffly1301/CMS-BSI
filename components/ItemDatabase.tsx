@@ -2,11 +2,11 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { ItemMaster, User } from '../types';
-import { 
-  Plus, 
-  Trash2, 
-  Search, 
-  Package, 
+import {
+  Plus,
+  Trash2,
+  Search,
+  Package,
   AlertCircle,
   Loader2,
   Database
@@ -22,7 +22,7 @@ const ItemDatabase: React.FC<ItemDatabaseProps> = ({ user }) => {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [isAdding, setIsAdding] = useState(false);
-  
+
   // Form state
   const [newCode, setNewCode] = useState('');
   const [newName, setNewName] = useState('');
@@ -37,7 +37,7 @@ const ItemDatabase: React.FC<ItemDatabaseProps> = ({ user }) => {
         .from('items')
         .select('*')
         .order('code', { ascending: true });
-      
+
       if (error) throw error;
       setItems(data || []);
     } catch (err) {
@@ -67,7 +67,8 @@ const ItemDatabase: React.FC<ItemDatabaseProps> = ({ user }) => {
         .insert({
           code: newCode.toUpperCase(),
           description: newName.toUpperCase(),
-          category: newCategory.toUpperCase() || 'GENERAL'
+          category: newCategory.toUpperCase() || 'GENERAL',
+          is_active: true
         });
 
       if (error) throw error;
@@ -102,7 +103,22 @@ const ItemDatabase: React.FC<ItemDatabaseProps> = ({ user }) => {
     }
   };
 
-  const filteredItems = items.filter(item => 
+  const handleToggleActive = async (id: string, currentIsActive: boolean) => {
+    try {
+      const { error } = await supabase
+        .from('items')
+        .update({ is_active: !currentIsActive })
+        .eq('id', id);
+
+      if (error) throw error;
+      fetchItems();
+    } catch (err: any) {
+      console.error('Error toggling item active status:', err);
+      alert(err.message || 'Gagal mengubah status aktif/tidak aktif item.');
+    }
+  };
+
+  const filteredItems = items.filter(item =>
     item.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
     item.description.toLowerCase().includes(searchTerm.toLowerCase())
   );
@@ -129,7 +145,7 @@ const ItemDatabase: React.FC<ItemDatabaseProps> = ({ user }) => {
           </h2>
           <p className="text-sm text-gray-500 font-medium">Kelola daftar produk dan kode item sistem</p>
         </div>
-        <button 
+        <button
           onClick={() => setIsAdding(!isAdding)}
           className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-xl text-xs font-black transition-all shadow-lg shadow-red-200"
         >
@@ -143,8 +159,8 @@ const ItemDatabase: React.FC<ItemDatabaseProps> = ({ user }) => {
           <form onSubmit={handleAddItem} className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="space-y-1">
               <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Kode Item</label>
-              <input 
-                type="text" 
+              <input
+                type="text"
                 placeholder="Contoh: BL-01"
                 className="w-full px-4 py-2.5 bg-gray-50 border border-transparent rounded-xl focus:bg-white focus:border-red-600 outline-none font-bold text-xs uppercase"
                 value={newCode}
@@ -154,8 +170,8 @@ const ItemDatabase: React.FC<ItemDatabaseProps> = ({ user }) => {
             </div>
             <div className="space-y-1">
               <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Nama / Deskripsi Produk</label>
-              <input 
-                type="text" 
+              <input
+                type="text"
                 placeholder="Contoh: BONELESS DADA"
                 className="w-full px-4 py-2.5 bg-gray-50 border border-transparent rounded-xl focus:bg-white focus:border-red-600 outline-none font-bold text-xs uppercase"
                 value={newName}
@@ -166,15 +182,15 @@ const ItemDatabase: React.FC<ItemDatabaseProps> = ({ user }) => {
             <div className="space-y-1">
               <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Kategori (Opsional)</label>
               <div className="flex gap-2">
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   placeholder="Contoh: BONELESS"
                   className="flex-1 px-4 py-2.5 bg-gray-50 border border-transparent rounded-xl focus:bg-white focus:border-red-600 outline-none font-bold text-xs uppercase"
                   value={newCategory}
                   onChange={(e) => setNewCategory(e.target.value)}
                 />
-                <button 
-                  type="submit" 
+                <button
+                  type="submit"
                   disabled={submitting}
                   className="bg-red-600 hover:bg-red-700 text-white px-6 rounded-xl text-xs font-black disabled:opacity-50 flex items-center justify-center min-w-[100px]"
                 >
@@ -190,8 +206,8 @@ const ItemDatabase: React.FC<ItemDatabaseProps> = ({ user }) => {
       <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
-          <input 
-            type="text" 
+          <input
+            type="text"
             placeholder="Cari berdasarkan kode atau nama produk..."
             className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-transparent rounded-xl focus:bg-white focus:border-red-600 outline-none font-bold text-xs"
             value={searchTerm}
@@ -208,13 +224,14 @@ const ItemDatabase: React.FC<ItemDatabaseProps> = ({ user }) => {
                 <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Kode Item</th>
                 <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Nama Produk</th>
                 <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Kategori</th>
+                <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Status</th>
                 <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Aksi</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
               {loading ? (
                 <tr>
-                  <td colSpan={4} className="px-6 py-12 text-center">
+                  <td colSpan={5} className="px-6 py-12 text-center">
                     <Loader2 className="animate-spin mx-auto text-red-600 mb-2" size={24} />
                     <span className="text-[10px] font-black text-gray-400 uppercase">Memuat Data...</span>
                   </td>
@@ -233,8 +250,23 @@ const ItemDatabase: React.FC<ItemDatabaseProps> = ({ user }) => {
                         {item.category || 'GENERAL'}
                       </span>
                     </td>
+                    <td className="px-6 py-4">
+                      <button
+                        onClick={() => handleToggleActive(item.id, item.is_active !== false)}
+                        type="button"
+                        className="flex items-center gap-2 cursor-pointer outline-none select-none"
+                        title="Klik untuk mengubah status aktif"
+                      >
+                        <div className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors duration-200 ${item.is_active !== false ? 'bg-green-600' : 'bg-gray-200'}`}>
+                          <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow-sm transition-transform duration-200 ${item.is_active !== false ? 'translate-x-[18px]' : 'translate-x-0.5'}`} />
+                        </div>
+                        <span className={`text-[10px] font-black uppercase tracking-wider ${item.is_active !== false ? 'text-green-600' : 'text-gray-400'}`}>
+                          {item.is_active !== false ? 'AKTIF' : 'NON-AKTIF'}
+                        </span>
+                      </button>
+                    </td>
                     <td className="px-6 py-4 text-right">
-                      <button 
+                      <button
                         onClick={() => handleDeleteItem(item.id)}
                         className="p-2 text-gray-300 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
                         title="Hapus Item"
@@ -246,7 +278,7 @@ const ItemDatabase: React.FC<ItemDatabaseProps> = ({ user }) => {
                 ))
               ) : (
                 <tr>
-                  <td colSpan={4} className="px-6 py-12 text-center">
+                  <td colSpan={5} className="px-6 py-12 text-center">
                     <Package size={48} className="mx-auto mb-4 opacity-10" />
                     <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Data item tidak ditemukan</p>
                   </td>
@@ -256,7 +288,7 @@ const ItemDatabase: React.FC<ItemDatabaseProps> = ({ user }) => {
           </table>
         </div>
       </div>
-      
+
       <div className="flex items-center justify-between px-2">
         <p className="text-[10px] font-bold text-gray-400 uppercase">Total: {filteredItems.length} Produk Terdaftar</p>
       </div>

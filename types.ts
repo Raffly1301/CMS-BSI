@@ -1,17 +1,17 @@
 
 export type InflowSource = 'PDS' | 'FPS' | 'PARTING' | 'MARINASI' | 'BONELESS' | 'SO FRESH' | 'IQF' | 'RETUR' | 'SMS' | 'CS';
 
-export type OutflowDestination = 
-  | 'Boneless' 
-  | 'Parting' 
-  | 'Marinasi' 
-  | 'Thowing' 
-  | 'FPS' 
-  | 'Condem' 
-  | 'CS' 
-  | 'Delive' 
-  | 'SMS' 
-  | 'IQF' 
+export type OutflowDestination =
+  | 'Boneless'
+  | 'Parting'
+  | 'Marinasi'
+  | 'Thowing'
+  | 'FPS'
+  | 'Condem'
+  | 'CS'
+  | 'Delive'
+  | 'SMS'
+  | 'IQF'
   | 'Retur';
 
 export interface User {
@@ -34,16 +34,16 @@ export interface ChillerItem {
   source: InflowSource; // source
   allocation: InflowSource; // allocation
   entryTimestamp: number; // derived from created_at
-  exitTimestamp?: number; 
+  exitTimestamp?: number;
   status: 'IN_CHILLER' | 'OUT_CHILLER' | 'PENDING_QC';
   isWIP?: boolean; // status_WIP
 }
 
 export interface Transaction {
-  id: string; 
-  chillerId: string; 
+  id: string;
+  chillerId: string;
   itemCode?: string; // Menyimpan kode item secara permanen di riwayat
-  userId: string; 
+  userId: string;
   type: 'IN' | 'OUT' | 'QC_PENDING' | 'QC_APPROVED' | 'QC_REJECTED';
   destination?: OutflowDestination;
   pcs: number;
@@ -52,9 +52,9 @@ export interface Transaction {
 }
 
 export interface SystemLog {
-  id: string; 
-  transactionId?: string; 
-  userId: string; 
+  id: string;
+  transactionId?: string;
+  userId: string;
   action: string;
   details: string;
   timestamp: number;
@@ -66,6 +66,7 @@ export interface ItemMaster {
   description: string;
   category?: string;
   created_at?: string;
+  is_active?: boolean;
 }
 
 export interface VirtualInventory {

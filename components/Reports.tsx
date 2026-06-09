@@ -2,10 +2,10 @@
 import React, { useState, useMemo } from 'react';
 import { ChillerItem, Transaction, SystemLog, User } from '../types';
 import { formatNumber } from '@/utils';
-import { 
-  History, 
-  Search, 
-  ArrowRight, 
+import {
+  History,
+  Search,
+  ArrowRight,
   User as UserIcon,
   Activity,
   Package,
@@ -41,21 +41,21 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users }) =
 
     // Group items by allocation
     const allocations = Array.from(new Set(items.map(i => i.allocation)));
-    
+
     return allocations.map(alloc => {
       const batchesInAlloc = items.filter(i => i.allocation === alloc);
       const batchIds = new Set(batchesInAlloc.map(b => b.batchId));
-      
+
       // Find all OUT transactions for these batches within date range
-      const outTrx = transactions.filter(t => 
-        t.type === 'OUT' && 
+      const outTrx = transactions.filter(t =>
+        t.type === 'OUT' &&
         batchIds.has(t.chillerId) &&
         t.timestamp >= startOfDay &&
         t.timestamp <= endOfDay
       );
 
       // Group by destination
-      const destBreakdown: Record<string, {kgs: number, pcs: number}> = {};
+      const destBreakdown: Record<string, { kgs: number, pcs: number }> = {};
       outTrx.forEach(t => {
         const dest = t.destination || 'Unknown';
         if (!destBreakdown[dest]) destBreakdown[dest] = { kgs: 0, pcs: 0 };
@@ -74,13 +74,13 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users }) =
 
   const stockCardData = useMemo(() => {
     if (tab !== 'STOCK_CARD' || !selectedItemCode) return [];
-    
+
     // Get all transactions for this item code
     // Note: Some transactions might not have itemCode if they were from old batches, 
     // but we can try to find them via chillerId -> item batch mapping
     const batchIdsForItem = new Set(items.filter(i => i.itemCode === selectedItemCode).map(i => i.batchId));
-    
-    const relevantTrx = transactions.filter(t => 
+
+    const relevantTrx = transactions.filter(t =>
       t.itemCode === selectedItemCode || batchIdsForItem.has(t.chillerId)
     ).sort((a, b) => a.timestamp - b.timestamp);
 
@@ -95,7 +95,7 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users }) =
         runningKgs -= t.kgs;
         runningPcs -= t.pcs;
       }
-      
+
       return {
         ...t,
         balanceKgs: runningKgs,
@@ -107,14 +107,14 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users }) =
   const filteredTrx = useMemo(() => {
     return transactions.filter(t => {
       const item = items.find(i => i.batchId === t.chillerId);
-      
+
       const searchStr = searchTerm.toLowerCase();
-      const matchesSearch = 
-        (item?.itemName || '').toLowerCase().includes(searchStr) || 
-        (item?.itemCode || t.itemCode || '').toLowerCase().includes(searchStr) || 
+      const matchesSearch =
+        (item?.itemName || '').toLowerCase().includes(searchStr) ||
+        (item?.itemCode || t.itemCode || '').toLowerCase().includes(searchStr) ||
         t.id.toLowerCase().includes(searchStr) ||
         t.chillerId.toLowerCase().includes(searchStr);
-      
+
       const trxDate = new Date(t.timestamp).toISOString().split('T')[0];
       const matchesStart = !filterStartDate || trxDate >= filterStartDate;
       const matchesEnd = !filterEndDate || trxDate <= filterEndDate;
@@ -125,8 +125,8 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users }) =
   }, [transactions, items, searchTerm, filterType, filterStartDate, filterEndDate]);
 
   const filteredLogs = useMemo(() => {
-    return logs.filter(l => 
-      l.action.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    return logs.filter(l =>
+      l.action.toLowerCase().includes(searchTerm.toLowerCase()) ||
       l.details.toLowerCase().includes(searchTerm.toLowerCase())
     );
   }, [logs, searchTerm]);
@@ -158,8 +158,8 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users }) =
           {tab === 'TRANSACTIONS' || tab === 'LOGS' ? (
             <div className="md:col-span-4 relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
-              <input 
-                type="text" 
+              <input
+                type="text"
                 placeholder="Cari Batch ID atau Produk..."
                 className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-transparent rounded-xl focus:bg-white focus:border-red-600 outline-none font-bold text-xs"
                 value={searchTerm}
@@ -168,7 +168,7 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users }) =
             </div>
           ) : tab === 'STOCK_CARD' ? (
             <div className="md:col-span-6">
-              <select 
+              <select
                 className="w-full bg-gray-50 border border-transparent rounded-xl px-4 py-2 text-[10px] font-black uppercase outline-none focus:bg-white focus:border-red-600"
                 value={selectedItemCode}
                 onChange={(e) => setSelectedItemCode(e.target.value)}
@@ -189,7 +189,7 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users }) =
             <>
               {tab === 'TRANSACTIONS' && (
                 <div className="md:col-span-2">
-                  <select 
+                  <select
                     className="w-full bg-gray-50 border border-transparent rounded-xl px-4 py-2 text-[10px] font-black uppercase outline-none focus:bg-white focus:border-red-600"
                     value={filterType}
                     onChange={(e) => setFilterType(e.target.value as any)}
@@ -203,7 +203,7 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users }) =
                 </div>
               )}
               <div className={tab === 'ALLOCATION' ? "md:col-span-3" : "md:col-span-2"}>
-                <input 
+                <input
                   type="date"
                   className="w-full bg-gray-50 border border-transparent rounded-xl px-3 py-2 text-[10px] font-black outline-none focus:bg-white focus:border-red-600"
                   value={filterStartDate}
@@ -211,7 +211,7 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users }) =
                 />
               </div>
               <div className={tab === 'ALLOCATION' ? "md:col-span-3" : "md:col-span-2"}>
-                <input 
+                <input
                   type="date"
                   className="w-full bg-gray-50 border border-transparent rounded-xl px-3 py-2 text-[10px] font-black outline-none focus:bg-white focus:border-red-600"
                   value={filterEndDate}
@@ -250,12 +250,11 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users }) =
                           <div className="text-[11px] font-bold text-gray-800 uppercase">{trx.itemCode || item?.itemCode || 'Batch Selesai/Keluar'}</div>
                         </td>
                         <td className="px-6 py-4">
-                          <span className={`text-[8px] font-black px-2 py-1 rounded-full uppercase ${
-                            trx.type === 'IN' ? 'bg-green-100 text-green-700' : 
-                            trx.type === 'OUT' ? 'bg-blue-100 text-blue-700' : 
-                            trx.type.includes('APPROVED') ? 'bg-emerald-100 text-emerald-700' :
-                            'bg-red-100 text-red-700'
-                          }`}>
+                          <span className={`text-[8px] font-black px-2 py-1 rounded-full uppercase ${trx.type === 'IN' ? 'bg-green-100 text-green-700' :
+                            trx.type === 'OUT' ? 'bg-blue-100 text-blue-700' :
+                              trx.type.includes('APPROVED') ? 'bg-emerald-100 text-emerald-700' :
+                                'bg-red-100 text-red-700'
+                            }`}>
                             {trx.type.replace('_', ' ')} {trx.destination && `→ ${trx.destination}`}
                           </span>
                         </td>
@@ -357,11 +356,10 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users }) =
                           <div className="text-[10px] font-black text-red-600 uppercase tracking-tighter">{trx.chillerId}</div>
                         </td>
                         <td className="px-6 py-4">
-                          <span className={`text-[8px] font-black px-2 py-1 rounded-full uppercase ${
-                            trx.type === 'IN' ? 'bg-green-100 text-green-700' : 
-                            trx.type === 'OUT' ? 'bg-blue-100 text-blue-700' : 
-                            'bg-gray-100 text-gray-700'
-                          }`}>
+                          <span className={`text-[8px] font-black px-2 py-1 rounded-full uppercase ${trx.type === 'IN' ? 'bg-green-100 text-green-700' :
+                            trx.type === 'OUT' ? 'bg-blue-100 text-blue-700' :
+                              'bg-gray-100 text-gray-700'
+                            }`}>
                             {trx.type} {trx.destination && `→ ${trx.destination}`}
                           </span>
                         </td>

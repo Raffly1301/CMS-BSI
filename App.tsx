@@ -1,16 +1,16 @@
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { 
-  LayoutDashboard, 
-  ArrowDownToLine, 
-  ThermometerSnowflake, 
-  ClipboardList, 
-  BarChart3, 
-  Menu, 
-  X, 
-  LogOut, 
-  User as UserIcon, 
-  ChevronLast, 
+import {
+  LayoutDashboard,
+  ArrowDownToLine,
+  ThermometerSnowflake,
+  ClipboardList,
+  BarChart3,
+  Menu,
+  X,
+  LogOut,
+  User as UserIcon,
+  ChevronLast,
   ChevronFirst,
   Database,
   Layers
@@ -45,7 +45,7 @@ const App: React.FC = () => {
   const [transactionTable, setTransactionTable] = useState<Transaction[]>([]);
   const [logTable, setLogTable] = useState<SystemLog[]>([]);
 
-  const itemsCache = useRef<Record<string, {name: string, code: string}>>({});
+  const itemsCache = useRef<Record<string, { name: string, code: string }>>({});
   const usersCache = useRef<Record<string, string>>({});
 
   const fetchData = useCallback(async (silent = false) => {
@@ -53,7 +53,7 @@ const App: React.FC = () => {
     try {
       const { data: itemsData } = await supabase.from('items').select('id, code, description');
       if (itemsData) {
-        itemsData.forEach(item => { 
+        itemsData.forEach(item => {
           itemsCache.current[item.id] = { name: item.description, code: item.code };
         });
       }
@@ -67,7 +67,7 @@ const App: React.FC = () => {
         supabase.from('chiller_stock').select('*').order('created_at', { ascending: false }),
         supabase.from('transactions').select('*').order('transaction_time', { ascending: false })
       ]);
-      
+
       if (stockRes.error) throw stockRes.error;
       if (trxRes.error) throw trxRes.error;
 
@@ -102,17 +102,48 @@ const App: React.FC = () => {
           entryTimestamp: new Date(item.created_at).getTime(),
           exitTimestamp: lastOut ? lastOut.timestamp : undefined,
           status: (
-            item.status === 'OUT' || item.status === 'OUT_CHILLER' ? 'OUT_CHILLER' : 
-            item.status === 'PENDING' || item.status === 'QC_PENDING' ? 'PENDING_QC' : 
-            'IN_CHILLER'
+            item.status === 'OUT' || item.status === 'OUT_CHILLER' ? 'OUT_CHILLER' :
+              item.status === 'PENDING' || item.status === 'QC_PENDING' ? 'PENDING_QC' :
+                'IN_CHILLER'
           ),
           isWIP: item.status_WIP === true || item.status_WIP === 'true'
         };
       });
 
+      // Heal missing 'IN' transactions dynamically!
+      // If a batch from chiller stock doesn't have an 'IN' transaction, reconstruct its quantity
+      // based on its current stock level plus any outflows that have been executed on it.
+      const synthesizedTrxs: Transaction[] = [];
+      mappedStock.forEach(stockItem => {
+        const hasIn = mappedTrx.some(t => t.chillerId === stockItem.batchId && t.type === 'IN');
+        if (!hasIn) {
+          const outTrxsForBatch = mappedTrx.filter(t => t.chillerId === stockItem.batchId && t.type === 'OUT');
+          const totalOutPcs = outTrxsForBatch.reduce((sum, t) => sum + t.pcs, 0);
+          const totalOutKgs = outTrxsForBatch.reduce((sum, t) => sum + t.kgs, 0);
+
+          const reconstructedOriginalPcs = stockItem.pcs + totalOutPcs;
+          const reconstructedOriginalKgs = stockItem.kgs + totalOutKgs;
+
+          if (reconstructedOriginalPcs > 0 || reconstructedOriginalKgs > 0) {
+            synthesizedTrxs.push({
+              id: `SYNTH-IN-${stockItem.batchId}`,
+              chillerId: stockItem.batchId,
+              itemCode: stockItem.itemCode,
+              userId: 'SYSTEM',
+              type: 'IN',
+              pcs: reconstructedOriginalPcs,
+              kgs: reconstructedOriginalKgs,
+              timestamp: stockItem.entryTimestamp
+            });
+          }
+        }
+      });
+
+      const finalTrx = [...mappedTrx, ...synthesizedTrxs];
+
       setChillerTable(mappedStock);
-      setTransactionTable(mappedTrx);
-      setLogTable(mappedTrx.map(t => ({
+      setTransactionTable(finalTrx);
+      setLogTable(finalTrx.map(t => ({
         id: `LOG-${t.id}`,
         userId: t.userId,
         action: t.type,
@@ -207,17 +238,17 @@ const App: React.FC = () => {
       const datePart = pdFmt === sdFmt ? pdFmt : `${pdFmt}${sdFmt}`;
       const batchId = `BSI-${datePart}-${Math.floor(Math.random() * 900 + 100)}`;
       const currentItemCode = itemsCache.current[item.itemsId]?.code || 'N/A';
-      
+
       try {
         const { error: stockErr } = await supabase.from('chiller_stock').insert({
           batch_id: batchId,
-          items_id: item.itemsId, 
+          items_id: item.itemsId,
           quantity_pcs: item.pcs,
           quantity_kgs: item.kgs,
           production_date: item.productionDate,
           slaughtering_date: item.slaughteringDate,
           status: 'IN',
-          created_by: user.id, 
+          created_by: user.id,
           source: item.source,
           allocation: item.allocation,
           status_WIP: item.isWIP || false
@@ -230,7 +261,7 @@ const App: React.FC = () => {
           destination: 'Chiller',
           quantity_pcs: item.pcs,
           quantity_kgs: item.kgs,
-          transaction_type: 'in', 
+          transaction_type: 'in',
           user_id: user.id,
           transaction_time: new Date().toISOString()
         });
@@ -248,7 +279,7 @@ const App: React.FC = () => {
           'IQF': 'IQF',
           'CS': 'CS'
         };
-        
+
         const mappedSource = sourceToDestMap[item.source.toUpperCase()];
         if (mappedSource) {
           await updateVirtualStock(mappedSource, item.itemsId, item.pcs, item.kgs, 'SUBTRACT');
@@ -273,7 +304,7 @@ const App: React.FC = () => {
         const { error: stockErr } = await supabase.from('chiller_stock')
           .update({ status: 'PENDING' })
           .eq(item.id.includes('-') ? 'id' : 'batch_id', item.id);
-        
+
         if (stockErr) throw stockErr;
 
         const { error: trxErr } = await supabase.from('transactions').insert({
@@ -282,12 +313,12 @@ const App: React.FC = () => {
           destination: 'Condem',
           quantity_pcs: actualPcs,
           quantity_kgs: actualKgs,
-          transaction_type: 'qc_pending', 
+          transaction_type: 'qc_pending',
           user_id: user.id,
           transaction_time: new Date().toISOString()
         });
         if (trxErr) throw trxErr;
-        
+
         fetchData(true);
         return;
       } catch (err) {
@@ -299,7 +330,7 @@ const App: React.FC = () => {
     try {
       if (actualPcs >= item.pcs) {
         const { error: upErr } = await supabase.from('chiller_stock')
-          .update({ 
+          .update({
             status: 'OUT',
             quantity_pcs: 0,
             quantity_kgs: 0
@@ -308,9 +339,9 @@ const App: React.FC = () => {
         if (upErr) throw upErr;
       } else {
         const { error: upErr } = await supabase.from('chiller_stock')
-          .update({ 
-            quantity_pcs: item.pcs - actualPcs, 
-            quantity_kgs: item.kgs - actualKgs 
+          .update({
+            quantity_pcs: item.pcs - actualPcs,
+            quantity_kgs: item.kgs - actualKgs
           })
           .eq(item.id.includes('-') ? 'id' : 'batch_id', item.id);
         if (upErr) throw upErr;
@@ -322,11 +353,11 @@ const App: React.FC = () => {
         destination: destination,
         quantity_pcs: actualPcs,
         quantity_kgs: actualKgs,
-        transaction_type: 'out', 
+        transaction_type: 'out',
         user_id: user.id,
         transaction_time: new Date().toISOString()
       });
-      
+
       if (trxErr) throw trxErr;
 
       // Virtual Inventory Update: If destination is NOT 'Delive' or 'Condem', add to it
@@ -335,7 +366,7 @@ const App: React.FC = () => {
       }
 
       fetchData(true);
-    } catch (err) { 
+    } catch (err) {
       console.error("Outflow Error:", err);
       alert("Gagal memproses pengeluaran stok.");
     }
@@ -379,7 +410,7 @@ const App: React.FC = () => {
               status: 'IN'
             }).eq('batch_id', item.batchId);
           }
-          
+
           await supabase.from('transactions').insert({
             batch_id: item.batchId,
             note: item.itemCode,
@@ -394,7 +425,7 @@ const App: React.FC = () => {
           await supabase.from('chiller_stock')
             .update({ status: 'IN' })
             .eq('batch_id', item.batchId);
-            
+
           await supabase.from('transactions').insert({
             batch_id: item.batchId,
             note: item.itemCode,
@@ -445,9 +476,9 @@ const App: React.FC = () => {
     localStorage.removeItem('bsi_user');
   };
 
-  const currentInventory = useMemo(() => 
-    chillerTable.filter(item => item.status === 'IN_CHILLER' || item.status === 'PENDING_QC'), 
-  [chillerTable]);
+  const currentInventory = useMemo(() =>
+    chillerTable.filter(item => item.status === 'IN_CHILLER' || item.status === 'PENDING_QC'),
+    [chillerTable]);
 
   const navigation = [
     { name: 'Dashboard', view: 'DASHBOARD' as ViewState, icon: LayoutDashboard },
@@ -465,7 +496,7 @@ const App: React.FC = () => {
     <div className="min-h-screen flex flex-col md:flex-row bg-gray-50 overflow-hidden relative">
       {/* Mobile Backdrop */}
       {sidebarOpen && (
-        <div 
+        <div
           className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[65] md:hidden animate-in fade-in duration-300"
           onClick={() => setSidebarOpen(false)}
         />
@@ -473,8 +504,8 @@ const App: React.FC = () => {
 
       {/* Mobile Header (Top bar) */}
       <header className="md:hidden bg-[#c01e1e] text-white p-4 flex items-center justify-between shadow-lg z-50">
-        <button 
-          onClick={() => setSidebarOpen(true)} 
+        <button
+          onClick={() => setSidebarOpen(true)}
           className="p-2 bg-white/10 rounded-xl hover:bg-white/20 transition-colors"
         >
           <Menu size={24} />
@@ -484,9 +515,9 @@ const App: React.FC = () => {
           <span className="font-brand font-bold italic text-xs uppercase tracking-wider">BSI CMS</span>
         </div>
       </header>
-      
+
       {/* Sidebar Aside Panel */}
-      <aside 
+      <aside
         className={`
           fixed inset-y-0 left-0 z-[70] md:relative md:flex flex-col bg-[#c01e1e] text-white 
           transition-transform duration-300 ease-in-out shadow-2xl md:shadow-none
@@ -496,11 +527,11 @@ const App: React.FC = () => {
         `}
       >
         <div className="p-4 md:p-6 border-b border-white/10 flex items-center gap-4">
-          <button 
+          <button
             onClick={() => {
               if (window.innerWidth < 768) setSidebarOpen(false);
               else setSidebarCollapsed(!sidebarCollapsed);
-            }} 
+            }}
             className="p-2 hover:bg-white/10 rounded-xl transition-all shrink-0"
           >
             <div className="md:hidden">
@@ -527,16 +558,16 @@ const App: React.FC = () => {
             )}
           </div>
         </div>
-        
+
         <nav className="flex-1 px-3 py-6 space-y-2 overflow-y-auto">
           {navigation.map(item => (
-            <button 
-              key={item.name} 
-              onClick={() => { setActiveView(item.view); setSidebarOpen(false); }} 
+            <button
+              key={item.name}
+              onClick={() => { setActiveView(item.view); setSidebarOpen(false); }}
               className={`
                 w-full flex items-center gap-4 px-4 py-3.5 rounded-2xl transition-all group
-                ${activeView === item.view 
-                  ? 'bg-white text-[#c01e1e] font-black shadow-[0_10px_20px_-5px_rgba(255,255,255,0.3)]' 
+                ${activeView === item.view
+                  ? 'bg-white text-[#c01e1e] font-black shadow-[0_10px_20px_-5px_rgba(255,255,255,0.3)]'
                   : 'hover:bg-white/10 text-white/80 hover:text-white'
                 }
               `}
@@ -567,8 +598,8 @@ const App: React.FC = () => {
         )}
 
         <div className="p-4 border-t border-white/10">
-          <button 
-            onClick={handleLogout} 
+          <button
+            onClick={handleLogout}
             className="w-full flex items-center gap-4 px-4 py-3.5 hover:bg-red-500 rounded-2xl transition-all text-white/70 hover:text-white group"
           >
             <LogOut size={20} className="group-hover:-translate-x-1 transition-transform" />
@@ -589,7 +620,7 @@ const App: React.FC = () => {
           <div className="max-w-7xl mx-auto pb-20 md:pb-0">
             {activeView === 'DASHBOARD' && <Dashboard items={chillerTable} transactions={transactionTable} onNavigate={setActiveView} />}
             {activeView === 'INFLOW' && <InflowForm onSubmitBatch={handleInflow} />}
-            {activeView === 'INVENTORY' && <InventoryList user={user} items={currentInventory} onOut={handleOutflow} onBatchOut={handleBatchOut} onQCApprove={(id)=>handleQCAction(id,'APPROVE')} onQCReject={(id)=>handleQCAction(id,'REJECT')} />}
+            {activeView === 'INVENTORY' && <InventoryList user={user} items={currentInventory} onOut={handleOutflow} onBatchOut={handleBatchOut} onQCApprove={(id) => handleQCAction(id, 'APPROVE')} onQCReject={(id) => handleQCAction(id, 'REJECT')} />}
             {activeView === 'REPORTS' && <Reports items={chillerTable} transactions={transactionTable} logs={logTable} users={[user!]} />}
             {activeView === 'DAILY_REPORT' && <DailyStockReport items={chillerTable} transactions={transactionTable} />}
             {activeView === 'ITEM_DATABASE' && <ItemDatabase user={user} />}
