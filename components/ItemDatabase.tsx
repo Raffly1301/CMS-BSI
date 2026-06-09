@@ -9,7 +9,9 @@ import {
   Package,
   AlertCircle,
   Loader2,
-  Database
+  Database,
+  Pencil,
+  X
 } from 'lucide-react';
 import { formatNumber } from '@/utils';
 
@@ -21,6 +23,7 @@ const ItemDatabase: React.FC<ItemDatabaseProps> = ({ user }) => {
   const [items, setItems] = useState<ItemMaster[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('ALL');
   const [isAdding, setIsAdding] = useState(false);
 
   // Form state
@@ -30,8 +33,14 @@ const ItemDatabase: React.FC<ItemDatabaseProps> = ({ user }) => {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  const fetchItems = async () => {
-    setLoading(true);
+  // Edit state
+  const [editingItem, setEditingItem] = useState<ItemMaster | null>(null);
+  const [editCode, setEditCode] = useState('');
+  const [editName, setEditName] = useState('');
+  const [editCategory, setEditCategory] = useState('');
+
+  const fetchItems = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const { data, error } = await supabase
         .from('items')
@@ -43,7 +52,7 @@ const ItemDatabase: React.FC<ItemDatabaseProps> = ({ user }) => {
     } catch (err) {
       console.error('Error fetching items:', err);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -104,6 +113,11 @@ const ItemDatabase: React.FC<ItemDatabaseProps> = ({ user }) => {
   };
 
   const handleToggleActive = async (id: string, currentIsActive: boolean) => {
+    // Optimistic UI Update first
+    setItems(prevItems =>
+      prevItems.map(item => item.id === id ? { ...item, is_active: !currentIsActive } : item)
+    );
+
     try {
       const { error } = await supabase
         .from('items')
@@ -111,17 +125,69 @@ const ItemDatabase: React.FC<ItemDatabaseProps> = ({ user }) => {
         .eq('id', id);
 
       if (error) throw error;
-      fetchItems();
+      // Fetch fresh data in the background silently
+      fetchItems(true);
     } catch (err: any) {
       console.error('Error toggling item active status:', err);
+      // Revert local state update on failure
+      setItems(prevItems =>
+        prevItems.map(item => item.id === id ? { ...item, is_active: currentIsActive } : item)
+      );
       alert(err.message || 'Gagal mengubah status aktif/tidak aktif item.');
     }
   };
 
-  const filteredItems = items.filter(item =>
-    item.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    item.description.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const handleStartEdit = (item: ItemMaster) => {
+    setEditingItem(item);
+    setEditCode(item.code);
+    setEditName(item.description);
+    setEditCategory(item.category || '');
+    setError('');
+  };
+
+  const handleUpdateItem = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingItem) return;
+    if (!editCode || !editName) {
+      setError('Kode dan Nama Item wajib diisi');
+      return;
+    }
+
+    setSubmitting(true);
+    setError('');
+
+    try {
+      const { error } = await supabase
+        .from('items')
+        .update({
+          code: editCode.toUpperCase(),
+          description: editName.toUpperCase(),
+          category: editCategory.toUpperCase() || 'GENERAL'
+        })
+        .eq('id', editingItem.id);
+
+      if (error) throw error;
+
+      setEditingItem(null);
+      setEditCode('');
+      setEditName('');
+      setEditCategory('');
+      fetchItems();
+    } catch (err: any) {
+      console.error('Error updating item:', err);
+      setError(err.message || 'Gagal mengubah item');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const filteredItems = items.filter(item => {
+    const matchesSearch = item.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.description.toLowerCase().includes(searchTerm.toLowerCase());
+    const itemCategory = (item.category || 'GENERAL').toUpperCase();
+    const matchesCategory = selectedCategory === 'ALL' || itemCategory === selectedCategory;
+    return matchesSearch && matchesCategory;
+  });
 
   const canManage = user?.role?.toUpperCase() === 'ADMIN' || user?.role?.toUpperCase() === 'SUPERADMIN';
 
@@ -203,16 +269,29 @@ const ItemDatabase: React.FC<ItemDatabaseProps> = ({ user }) => {
         </div>
       )}
 
-      <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+      <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm flex flex-col md:flex-row gap-4 items-stretch md:items-center">
+        <div className="relative flex-1">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
           <input
             type="text"
             placeholder="Cari berdasarkan kode atau nama produk..."
-            className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-transparent rounded-xl focus:bg-white focus:border-red-600 outline-none font-bold text-xs"
+            className="w-full pl-11 pr-4 py-3 bg-gray-50 border border-transparent rounded-xl focus:bg-white focus:border-red-600 outline-none font-bold text-xs uppercase"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
+        </div>
+        <div className="flex items-center gap-2 bg-gray-50 px-4 py-2.5 rounded-xl border border-transparent focus-within:border-red-600 focus-within:bg-white transition-colors">
+          <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest whitespace-nowrap">Filter Kategori:</label>
+          <select
+            className="bg-transparent border-none outline-none font-bold text-xs uppercase cursor-pointer text-gray-700 min-w-[150px]"
+            value={selectedCategory}
+            onChange={(e) => setSelectedCategory(e.target.value)}
+          >
+            <option value="ALL">SEMUA KATEGORI</option>
+            {Array.from(new Set(items.map(item => (item.category || 'GENERAL').toUpperCase()))).sort().map(cat => (
+              <option key={cat} value={cat}>{cat}</option>
+            ))}
+          </select>
         </div>
       </div>
 
@@ -266,13 +345,22 @@ const ItemDatabase: React.FC<ItemDatabaseProps> = ({ user }) => {
                       </button>
                     </td>
                     <td className="px-6 py-4 text-right">
-                      <button
-                        onClick={() => handleDeleteItem(item.id)}
-                        className="p-2 text-gray-300 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
-                        title="Hapus Item"
-                      >
-                        <Trash2 size={16} />
-                      </button>
+                      <div className="flex justify-end items-center gap-1">
+                        <button
+                          onClick={() => handleStartEdit(item)}
+                          className="p-2 text-gray-300 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all opacity-0 group-hover:opacity-100 cursor-pointer outline-none"
+                          title="Edit Item"
+                        >
+                          <Pencil size={15} />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteItem(item.id)}
+                          className="p-2 text-gray-300 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100 cursor-pointer outline-none"
+                          title="Hapus Item"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -292,6 +380,85 @@ const ItemDatabase: React.FC<ItemDatabaseProps> = ({ user }) => {
       <div className="flex items-center justify-between px-2">
         <p className="text-[10px] font-bold text-gray-400 uppercase">Total: {filteredItems.length} Produk Terdaftar</p>
       </div>
+
+      {/* Edit Modal */}
+      {editingItem && (
+        <div className="fixed inset-0 bg-black/55 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+          <div className="bg-white w-full max-w-lg rounded-2xl border border-gray-100 shadow-2xl p-6 relative animate-in zoom-in-95 duration-200">
+            <button
+              onClick={() => setEditingItem(null)}
+              className="absolute right-4 top-4 p-2 text-gray-400 hover:text-gray-600 rounded-lg transition-colors cursor-pointer outline-none"
+            >
+              <X size={18} />
+            </button>
+
+            <div className="mb-4">
+              <h3 className="text-lg font-black text-gray-900 uppercase tracking-tight flex items-center gap-2">
+                <Pencil className="text-red-600 animate-pulse" size={18} />
+                Edit Master Item
+              </h3>
+              <p className="text-xs text-gray-400 font-bold uppercase tracking-wider mt-0.5">Ubah detail produk {editingItem.code}</p>
+            </div>
+
+            <form onSubmit={handleUpdateItem} className="space-y-4">
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Kode Item</label>
+                <input
+                  type="text"
+                  className="w-full px-4 py-2.5 bg-gray-50 border border-transparent rounded-xl focus:bg-white focus:border-red-600 outline-none font-bold text-xs uppercase"
+                  value={editCode}
+                  onChange={(e) => setEditCode(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Nama / Deskripsi Produk</label>
+                <input
+                  type="text"
+                  className="w-full px-4 py-2.5 bg-gray-50 border border-transparent rounded-xl focus:bg-white focus:border-red-600 outline-none font-bold text-xs uppercase"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Kategori (Opsional)</label>
+                <input
+                  type="text"
+                  className="w-full px-4 py-2.5 bg-gray-50 border border-transparent rounded-xl focus:bg-white focus:border-red-600 outline-none font-bold text-xs uppercase"
+                  value={editCategory}
+                  onChange={(e) => setEditCategory(e.target.value)}
+                />
+              </div>
+
+              {error && (
+                <p className="text-red-600 text-[10px] font-bold uppercase flex items-center gap-1">
+                  <AlertCircle size={12} /> {error}
+                </p>
+              )}
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingItem(null)}
+                  className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-600 py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer"
+                >
+                  BATAL
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="flex-1 bg-red-600 hover:bg-red-700 text-white py-2.5 rounded-xl text-xs font-black transition-all flex items-center justify-center shadow-lg shadow-red-100 cursor-pointer"
+                >
+                  {submitting ? <Loader2 className="animate-spin" size={16} /> : 'SIMPAN PERUBAHAN'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
