@@ -3,10 +3,10 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { ChillerItem, OutflowDestination, InflowSource, User } from '../types';
 import { OUTFLOW_DESTINATIONS, INFLOW_SOURCES } from '../constants';
 import { formatNumber } from '@/utils';
-import { 
-  ArrowUpFromLine, 
-  Search, 
-  Boxes, 
+import {
+  ArrowUpFromLine,
+  Search,
+  Boxes,
   X,
   Check,
   CheckSquare,
@@ -20,6 +20,7 @@ import {
   XCircle,
   Package
 } from 'lucide-react';
+import CalculatorPopup from './CalculatorPopup';
 
 interface InventoryListProps {
   user: User | null;
@@ -38,9 +39,10 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
   const [selectedItemForSingleOut, setSelectedItemForSingleOut] = useState<ChillerItem | null>(null);
   const [destination, setDestination] = useState<OutflowDestination>('Boneless');
   const [showAdminCondemConfirm, setShowAdminCondemConfirm] = useState(false);
-  
+
   const [outPcs, setOutPcs] = useState<number>(0);
   const [outKgs, setOutKgs] = useState<number>(0);
+  const [activeCalculator, setActiveCalculator] = useState<'pcs' | 'kgs' | null>(null);
 
   const [filterSource, setFilterSource] = useState<InflowSource | 'ALL'>('ALL');
   const [filterAllocation, setFilterAllocation] = useState<InflowSource | 'ALL'>('ALL');
@@ -52,13 +54,13 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
     if (selectedItemForSingleOut) {
       setOutPcs(selectedItemForSingleOut.pcs);
       setOutKgs(selectedItemForSingleOut.kgs);
-      
+
       // Set default destination based on allocation
       const allocation = selectedItemForSingleOut.allocation;
       const matchedDest = OUTFLOW_DESTINATIONS.find(
         d => d.toUpperCase() === allocation.toUpperCase()
       );
-      
+
       if (matchedDest) {
         setDestination(matchedDest);
       } else if (allocation === 'PDS' || allocation === 'SO FRESH') {
@@ -74,12 +76,12 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
       if (selectedItems.length > 0) {
         const firstAllocation = selectedItems[0].allocation;
         const allSameAllocation = selectedItems.every(i => i.allocation === firstAllocation);
-        
+
         if (allSameAllocation) {
           const matchedDest = OUTFLOW_DESTINATIONS.find(
             d => d.toUpperCase() === firstAllocation.toUpperCase()
           );
-          
+
           if (matchedDest) {
             setDestination(matchedDest);
           } else if (firstAllocation === 'PDS' || firstAllocation === 'SO FRESH') {
@@ -92,20 +94,20 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
 
   const filteredItems = useMemo(() => {
     return items.filter(i => {
-      const matchesSearch = 
-        i.itemName.toLowerCase().includes(searchTerm.toLowerCase()) || 
-        i.itemCode.toLowerCase().includes(searchTerm.toLowerCase()) || 
+      const matchesSearch =
+        i.itemName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        i.itemCode.toLowerCase().includes(searchTerm.toLowerCase()) ||
         i.source.toLowerCase().includes(searchTerm.toLowerCase()) ||
         i.batchId.toLowerCase().includes(searchTerm.toLowerCase()) ||
         i.id.toLowerCase().includes(searchTerm.toLowerCase());
-      
+
       const matchesSource = filterSource === 'ALL' || i.source === filterSource;
       const matchesAllocation = filterAllocation === 'ALL' || i.allocation === filterAllocation;
-      const matchesWIP = 
-        filterWIP === 'ALL' || 
-        (filterWIP === 'WIP' && i.isWIP) || 
+      const matchesWIP =
+        filterWIP === 'ALL' ||
+        (filterWIP === 'WIP' && i.isWIP) ||
         (filterWIP === 'REGULAR' && !i.isWIP);
-      
+
       const matchesProdDate = !filterProdDate || i.productionDate === filterProdDate;
       const matchesSlaughterDate = !filterSlaughterDate || i.slaughteringDate === filterSlaughterDate;
 
@@ -133,7 +135,7 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
     const item = items.find(i => i.id === id);
     if (item?.status === 'PENDING_QC') return;
 
-    setSelectedItemIds(prev => 
+    setSelectedItemIds(prev =>
       prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
     );
   };
@@ -219,11 +221,11 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
           const isSelected = selectedItemIds.includes(item.id);
           const isPendingQC = item.status === 'PENDING_QC';
           const userRole = user?.role?.toUpperCase() || '';
-          
+
           return (
-            <div 
-              key={item.id} 
-              onClick={() => toggleSelection(item.id)} 
+            <div
+              key={item.id}
+              onClick={() => toggleSelection(item.id)}
               className={`
                 group relative bg-white rounded-2xl overflow-hidden border-2 transition-all flex flex-col
                 ${isPendingQC ? 'border-amber-400 bg-amber-50/20' : isSelected ? 'border-red-500 bg-red-50/20' : 'border-gray-50 hover:border-red-200 shadow-sm'}
@@ -239,7 +241,7 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
                   </div>
                   <span className="text-[7px] font-bold text-gray-300 uppercase tracking-tighter">{item.batchId}</span>
                 </div>
-                
+
                 <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-4">
                   <div className="flex-1 min-w-0">
                     <h3 className="text-sm md:text-base font-black text-gray-900 uppercase leading-tight">{item.itemCode}</h3>
@@ -249,7 +251,7 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
                       <div className="flex items-center gap-1"><span className="text-[7px] font-black text-gray-400 uppercase">SD:</span><span className="text-[8px] font-bold text-gray-600">{item.slaughteringDate}</span></div>
                     </div>
                   </div>
-                  
+
                   <div className="flex items-center gap-4 md:gap-6">
                     <div className="flex items-center bg-gray-50/80 px-3 py-2 rounded-xl border border-gray-100 gap-4">
                       <div className="flex flex-col items-center">
@@ -267,15 +269,15 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
                       {isPendingQC ? (
                         (userRole === 'ADMINQC' || userRole === 'SUPERADMIN') ? (
                           <div className="flex gap-1">
-                             <button 
-                              onClick={(e) => { e.stopPropagation(); onQCReject(item.id); }} 
+                            <button
+                              onClick={(e) => { e.stopPropagation(); onQCReject(item.id); }}
                               className="p-2 bg-white text-gray-400 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
                               title="Tolak"
                             >
                               <XCircle size={16} />
                             </button>
-                            <button 
-                              onClick={(e) => { e.stopPropagation(); onQCApprove(item.id); }} 
+                            <button
+                              onClick={(e) => { e.stopPropagation(); onQCApprove(item.id); }}
                               className="bg-red-600 text-white font-black px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-red-700 transition-colors uppercase text-[9px] shadow-lg shadow-red-100"
                             >
                               <ShieldCheck size={14} /> APPROVE
@@ -283,12 +285,12 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
                           </div>
                         ) : (
                           <div className="px-3 py-2 bg-amber-50 text-amber-600 font-black text-[8px] rounded-lg flex items-center gap-1.5 border border-amber-200 uppercase">
-                             <ShieldAlert size={12} /> PENDING QC
+                            <ShieldAlert size={12} /> PENDING QC
                           </div>
                         )
                       ) : (
-                        <button 
-                          onClick={(e) => { e.stopPropagation(); setSelectedItemForSingleOut(item); }} 
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setSelectedItemForSingleOut(item); }}
                           className="w-full md:w-auto bg-red-600 text-white font-black px-5 py-2.5 rounded-xl flex items-center justify-center gap-2 hover:bg-red-700 transition-all active:scale-95 uppercase text-[10px] shadow-lg shadow-red-200 group-hover:shadow-red-300"
                         >
                           <ArrowUpFromLine size={14} /> KELUAR
@@ -323,8 +325,46 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
                         <p className="text-base font-black text-red-600 uppercase leading-tight">{selectedItemForSingleOut.itemCode}</p>
                         <p className="text-[10px] font-bold text-gray-500 uppercase">{selectedItemForSingleOut.itemName}</p>
                         <div className="grid grid-cols-2 gap-3">
-                          <div className="space-y-1"><label className="text-[8px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1"><Calculator size={10} /> Qty Keluar</label><input type="number" className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-xs font-black outline-none focus:border-red-600" value={outPcs} onChange={(e) => setOutPcs(parseInt(e.target.value) || 0)} /></div>
-                          <div className="space-y-1"><label className="text-[8px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1"><Scale size={10} /> Berat Keluar</label><input type="number" step="0.01" className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-xs font-black outline-none focus:border-red-600" value={outKgs} onChange={(e) => setOutKgs(parseFloat(e.target.value) || 0)} /></div>
+                          <div className="space-y-1">
+                            <label className="text-[8px] font-black text-gray-400 uppercase tracking-widest">Qty Keluar</label>
+                            <div className="relative">
+                              <button
+                                type="button"
+                                onClick={() => setActiveCalculator('pcs')}
+                                className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-red-500 p-1 hover:bg-gray-100 rounded-md transition-all cursor-pointer outline-none"
+                                title="Buka kalkulator Qty Keluar"
+                              >
+                                <Calculator size={13} />
+                              </button>
+                              <input
+                                type="number"
+                                className="w-full bg-white border border-gray-200 rounded-lg pl-9 pr-3 py-2.5 text-xs font-black outline-none focus:border-red-600 focus:bg-white"
+                                value={outPcs || ''}
+                                onChange={(e) => setOutPcs(parseInt(e.target.value) || 0)}
+                              />
+                            </div>
+                          </div>
+
+                          <div className="space-y-1">
+                            <label className="text-[8px] font-black text-gray-400 uppercase tracking-widest">Berat Keluar</label>
+                            <div className="relative">
+                              <button
+                                type="button"
+                                onClick={() => setActiveCalculator('kgs')}
+                                className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-red-500 p-1 hover:bg-gray-100 rounded-md transition-all cursor-pointer outline-none"
+                                title="Buka kalkulator Berat Keluar"
+                              >
+                                <Scale size={13} />
+                              </button>
+                              <input
+                                type="number"
+                                step="0.01"
+                                className="w-full bg-white border border-gray-200 rounded-lg pl-9 pr-3 py-2.5 text-xs font-black outline-none focus:border-red-600 focus:bg-white"
+                                value={outKgs || ''}
+                                onChange={(e) => setOutKgs(parseFloat(e.target.value) || 0)}
+                              />
+                            </div>
+                          </div>
                         </div>
                       </div>
                     )}
@@ -365,6 +405,21 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
             </div>
           </div>
         </div>
+      )}
+
+      {activeCalculator && (
+        <CalculatorPopup
+          initialValue={activeCalculator === 'pcs' ? outPcs : outKgs}
+          title={`Hitung ${activeCalculator === 'pcs' ? 'Qty Keluar (Pcs)' : 'Berat Keluar (Kg)'}`}
+          onApply={(val) => {
+            if (activeCalculator === 'pcs') {
+              setOutPcs(val);
+            } else {
+              setOutKgs(val);
+            }
+          }}
+          onClose={() => setActiveCalculator(null)}
+        />
       )}
     </div>
   );

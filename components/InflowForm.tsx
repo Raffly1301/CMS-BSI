@@ -19,6 +19,7 @@ import {
   Search
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import CalculatorPopup from './CalculatorPopup';
 
 interface InflowFormProps {
   // Fix: Omit itemCode from the items passed to onSubmitBatch to match App.tsx handleInflow signature
@@ -50,6 +51,11 @@ const InflowForm: React.FC<InflowFormProps> = ({ onSubmitBatch }) => {
 
   // Multiple quantity & weight rows in form
   const [qtyRows, setQtyRows] = useState<{ pcs: number; kgs: number }[]>([{ pcs: 0, kgs: 0 }]);
+  const [activeCalculator, setActiveCalculator] = useState<{
+    rowIndex: number;
+    field: 'pcs' | 'kgs';
+    value: number;
+  } | null>(null);
 
   const handleQtyRowChange = (index: number, field: 'pcs' | 'kgs', value: number) => {
     setQtyRows(prev => prev.map((row, i) => {
@@ -268,27 +274,37 @@ const InflowForm: React.FC<InflowFormProps> = ({ onSubmitBatch }) => {
                 {qtyRows.map((row, idx) => (
                   <div key={idx} className="flex gap-3 items-center animate-in fade-in duration-200">
                     <div className="flex-1 relative">
-                      <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 z-10 flex items-center pointer-events-none">
-                        <Calculator size={14} className="text-red-600" />
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setActiveCalculator({ rowIndex: idx, field: 'pcs', value: row.pcs })}
+                        className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 z-10 p-1 hover:bg-gray-100 hover:text-red-600 rounded-lg transition-colors cursor-pointer outline-none"
+                        title="Buka kalkulator Qty"
+                      >
+                        <Calculator size={14} />
+                      </button>
                       <input
                         type="number"
                         placeholder="Qty (Pcs)"
-                        className="w-full bg-gray-50 border-2 border-gray-100 rounded-xl pl-9 pr-4 py-3 focus:border-red-600 focus:bg-white transition-all outline-none font-bold text-sm"
+                        className="w-full bg-gray-50 border-2 border-gray-100 rounded-xl pl-10 pr-4 py-3 focus:border-red-600 focus:bg-white transition-all outline-none font-bold text-sm"
                         value={row.pcs || ''}
                         onChange={(e) => handleQtyRowChange(idx, 'pcs', parseInt(e.target.value) || 0)}
                       />
                     </div>
 
                     <div className="flex-1 relative">
-                      <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 z-10 flex items-center pointer-events-none">
-                        <Scale size={14} className="text-red-600" />
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setActiveCalculator({ rowIndex: idx, field: 'kgs', value: row.kgs })}
+                        className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 z-10 p-1 hover:bg-gray-100 hover:text-red-50 rounded-lg transition-colors cursor-pointer outline-none"
+                        title="Buka kalkulator Berat"
+                      >
+                        <Scale size={14} />
+                      </button>
                       <input
                         type="number"
                         step="0.01"
                         placeholder="Berat (Kg)"
-                        className="w-full bg-gray-50 border-2 border-gray-100 rounded-xl pl-9 pr-4 py-3 focus:border-red-600 focus:bg-white transition-all outline-none font-bold text-sm"
+                        className="w-full bg-gray-50 border-2 border-gray-100 rounded-xl pl-10 pr-4 py-3 focus:border-red-600 focus:bg-white transition-all outline-none font-bold text-sm"
                         value={row.kgs || ''}
                         onChange={(e) => handleQtyRowChange(idx, 'kgs', parseFloat(e.target.value) || 0)}
                       />
@@ -298,7 +314,7 @@ const InflowForm: React.FC<InflowFormProps> = ({ onSubmitBatch }) => {
                       <button
                         type="button"
                         onClick={() => handleRemoveQtyRow(idx)}
-                        className="p-3 bg-gray-50 hover:bg-red-50 hover:text-red-600 border border-gray-100 hover:border-red-100 text-gray-400 rounded-xl transition-all"
+                        className="p-3 bg-gray-50 hover:bg-red-50 hover:text-red-600 border border-gray-100 hover:border-red-100 text-gray-400 rounded-xl transition-all cursor-pointer"
                         title="Hapus Baris"
                       >
                         <Trash2 size={16} />
@@ -463,6 +479,17 @@ const InflowForm: React.FC<InflowFormProps> = ({ onSubmitBatch }) => {
             )}
           </div>
         </div>
+      )}
+
+      {activeCalculator && (
+        <CalculatorPopup
+          initialValue={activeCalculator.value}
+          title={`Hitung ${activeCalculator.field === 'pcs' ? 'Qty (Pcs)' : 'Berat (Kg)'}`}
+          onApply={(val) => {
+            handleQtyRowChange(activeCalculator.rowIndex, activeCalculator.field, val);
+          }}
+          onClose={() => setActiveCalculator(null)}
+        />
       )}
     </div>
   );
