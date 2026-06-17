@@ -250,6 +250,11 @@ const App: React.FC = () => {
 
   const handleInflow = async (newItems: Omit<ChillerItem, 'id' | 'batchId' | 'entryTimestamp' | 'status' | 'itemCode'>[]) => {
     if (!user) return;
+    setIsLoading(true);
+    let successCount = 0;
+    let failCount = 0;
+    let lastErrorMsg = "";
+
     for (const item of newItems) {
       const formatDateForBatch = (d: string) => {
         const parts = d.split('-');
@@ -307,16 +312,31 @@ const App: React.FC = () => {
         if (mappedSource) {
           await updateVirtualStock(mappedSource, item.itemsId, item.pcs, item.kgs, 'SUBTRACT');
         }
-      } catch (err) { console.error("Inflow Error:", err); }
+        successCount++;
+      } catch (err: any) {
+        console.error("Inflow Error:", err);
+        failCount++;
+        lastErrorMsg = err?.message || String(err);
+      }
     }
-    fetchData(true);
+
+    if (failCount > 0) {
+      alert(`Gagal menyimpan ${failCount} item dari total ${newItems.length} item. Error: ${lastErrorMsg}`);
+    }
+
+    await fetchData(true);
+    setIsLoading(false);
     setActiveView('INVENTORY');
   };
 
-  const handleOutflow = async (id: string, destination: OutflowDestination, outPcs?: number, outKgs?: number) => {
+  const handleOutflow = async (id: string, destination: OutflowDestination, outPcs?: number, outKgs?: number, skipLoading = false) => {
     if (!user) return;
+    if (!skipLoading) setIsLoading(true);
     const item = chillerTable.find(i => i.id === id);
-    if (!item) return;
+    if (!item) {
+      if (!skipLoading) setIsLoading(false);
+      return;
+    }
 
     const actualPcs = outPcs ?? item.pcs;
     const actualKgs = outKgs ?? item.kgs;
@@ -342,12 +362,14 @@ const App: React.FC = () => {
         });
         if (trxErr) throw trxErr;
 
-        fetchData(true);
-        return;
-      } catch (err) {
+        await fetchData(true);
+      } catch (err: any) {
         console.error("Condem Request Error:", err);
-        return;
+        alert(`Gagal mengajukan Condem: ${err?.message || err}`);
+      } finally {
+        if (!skipLoading) setIsLoading(false);
       }
+      return;
     }
 
     try {
@@ -388,17 +410,88 @@ const App: React.FC = () => {
         await updateVirtualStock(destination, item.itemsId, actualPcs, actualKgs, 'ADD');
       }
 
-      fetchData(true);
-    } catch (err) {
+      await fetchData(true);
+    } catch (err: any) {
       console.error("Outflow Error:", err);
-      alert("Gagal memproses pengeluaran stok.");
+      alert(`Gagal memproses pengeluaran stok: ${err?.message || err}`);
+    } finally {
+      if (!skipLoading) setIsLoading(false);
     }
   };
 
   const handleBatchOut = async (ids: string[], destination: OutflowDestination) => {
+    if (!user) return;
+    setIsLoading(true);
+    let successCount = 0;
+    let failCount = 0;
+    let lastErrorMsg = "";
+
     for (const id of ids) {
-      await handleOutflow(id, destination);
+      try {
+        const item = chillerTable.find(i => i.id === id);
+        if (!item) continue;
+
+        const actualPcs = item.pcs;
+        const actualKgs = item.kgs;
+
+        if (destination === 'Condem' && (user.role.toUpperCase() === 'USER' || user.role.toUpperCase() === 'ADMIN')) {
+          const { error: stockErr } = await supabase.from('chiller_stock')
+            .update({ status: 'PENDING' })
+            .eq(id.includes('-') ? 'id' : 'batch_id', id);
+          if (stockErr) throw stockErr;
+
+          const { error: trxErr } = await supabase.from('transactions').insert({
+            batch_id: item.batchId,
+            note: item.itemCode,
+            destination: 'Condem',
+            quantity_pcs: actualPcs,
+            quantity_kgs: actualKgs,
+            transaction_type: 'qc_pending',
+            user_id: user.id,
+            transaction_time: new Date().toISOString()
+          });
+          if (trxErr) throw trxErr;
+        } else {
+          const { error: upErr } = await supabase.from('chiller_stock')
+            .update({
+              status: 'OUT',
+              quantity_pcs: 0,
+              quantity_kgs: 0
+            })
+            .eq(id.includes('-') ? 'id' : 'batch_id', id);
+          if (upErr) throw upErr;
+
+          const { error: trxErr } = await supabase.from('transactions').insert({
+            batch_id: item.batchId,
+            note: item.itemCode,
+            destination: destination,
+            quantity_pcs: actualPcs,
+            quantity_kgs: actualKgs,
+            transaction_type: 'out',
+            user_id: user.id,
+            transaction_time: new Date().toISOString()
+          });
+          if (trxErr) throw trxErr;
+
+          // Virtual Inventory Update
+          if (destination !== 'Delive' && destination !== 'Condem') {
+            await updateVirtualStock(destination, item.itemsId, actualPcs, actualKgs, 'ADD');
+          }
+        }
+        successCount++;
+      } catch (err: any) {
+        console.error("Batch Outflow Error for ID:", id, err);
+        failCount++;
+        lastErrorMsg = err?.message || String(err);
+      }
     }
+
+    if (failCount > 0) {
+      alert(`Gagal memproses total ${failCount} item dari total batch ${ids.length} item. Error: ${lastErrorMsg}`);
+    }
+
+    await fetchData(true);
+    setIsLoading(false);
   };
 
   const handleQCAction = async (id: string, action: 'APPROVE' | 'REJECT') => {
@@ -407,6 +500,7 @@ const App: React.FC = () => {
     const item = chillerTable.find(i => i.id === id);
     if (!item) return;
 
+    setIsLoading(true);
     try {
       const { data: trxList } = await supabase
         .from('transactions')
@@ -480,8 +574,13 @@ const App: React.FC = () => {
         if (trxErr) throw trxErr;
       }
 
-      fetchData(true);
-    } catch (err) { console.error("QC Action Error:", err); }
+      await fetchData(true);
+    } catch (err: any) {
+      console.error("QC Action Error:", err);
+      alert(`Gagal memproses tindakan QC: ${err?.message || err}`);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleLogin = (u: User) => {
