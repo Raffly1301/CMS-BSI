@@ -48,6 +48,32 @@ const App: React.FC = () => {
   const itemsCache = useRef<Record<string, { name: string, code: string }>>({});
   const usersCache = useRef<Record<string, string>>({});
 
+  // Helper: fetch ALL rows from a Supabase table using pagination (PostgREST caps per-request rows)
+  const fetchAllRows = useCallback(async (table: string, orderCol: string) => {
+    const PAGE_SIZE = 1000;
+    let allData: any[] = [];
+    let from = 0;
+    let keepGoing = true;
+
+    while (keepGoing) {
+      const { data, error } = await supabase
+        .from(table)
+        .select('*')
+        .order(orderCol, { ascending: false })
+        .range(from, from + PAGE_SIZE - 1);
+
+      if (error) throw error;
+      if (data && data.length > 0) {
+        allData = allData.concat(data);
+        from += PAGE_SIZE;
+        if (data.length < PAGE_SIZE) keepGoing = false;
+      } else {
+        keepGoing = false;
+      }
+    }
+    return allData;
+  }, []);
+
   const fetchData = useCallback(async (silent = false) => {
     if (!silent) setIsLoading(true);
     try {
@@ -63,15 +89,12 @@ const App: React.FC = () => {
         usersData.forEach(u => { usersCache.current[u.id] = u.username; });
       }
 
-      const [stockRes, trxRes] = await Promise.all([
-        supabase.from('chiller_stock').select('*').order('created_at', { ascending: false }),
-        supabase.from('transactions').select('*').order('transaction_time', { ascending: false })
+      const [stockData, trxData] = await Promise.all([
+        fetchAllRows('chiller_stock', 'created_at'),
+        fetchAllRows('transactions', 'transaction_time')
       ]);
 
-      if (stockRes.error) throw stockRes.error;
-      if (trxRes.error) throw trxRes.error;
-
-      const mappedTrx: Transaction[] = (trxRes.data || []).map(item => ({
+      const mappedTrx: Transaction[] = (trxData || []).map(item => ({
         id: String(item.id),
         chillerId: String(item.batch_id || 'N/A'),
         itemCode: item.note || undefined,
@@ -83,7 +106,7 @@ const App: React.FC = () => {
         timestamp: new Date(item.transaction_time).getTime()
       }));
 
-      const mappedStock: ChillerItem[] = (stockRes.data || []).map(item => {
+      const mappedStock: ChillerItem[] = (stockData || []).map(item => {
         const batchId = item.batch_id;
         const lastOut = mappedTrx.find(t => t.chillerId === batchId && t.type === 'OUT');
 
@@ -155,7 +178,7 @@ const App: React.FC = () => {
     } finally {
       if (!silent) setIsLoading(false);
     }
-  }, []);
+  }, [fetchAllRows]);
 
   useEffect(() => {
     if (isAuthenticated) {
