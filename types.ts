@@ -49,6 +49,8 @@ export interface Transaction {
   pcs: number;
   kgs: number;
   timestamp: number;
+  harvestPcs?: number;
+  harvestKgs?: number;
 }
 
 export interface SystemLog {

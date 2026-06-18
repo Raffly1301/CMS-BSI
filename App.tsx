@@ -71,7 +71,15 @@ const App: React.FC = () => {
         keepGoing = false;
       }
     }
-    return allData;
+
+    // Explicitly deduplicate by primary key ID to be resilient against page shifting
+    const uniqueMap = new Map();
+    allData.forEach(item => {
+      if (item && item.id) {
+        uniqueMap.set(String(item.id), item);
+      }
+    });
+    return Array.from(uniqueMap.values());
   }, []);
 
   const fetchData = useCallback(async (silent = false) => {
@@ -94,17 +102,27 @@ const App: React.FC = () => {
         fetchAllRows('transactions', 'transaction_time')
       ]);
 
-      const mappedTrx: Transaction[] = (trxData || []).map(item => ({
-        id: String(item.id),
-        chillerId: String(item.batch_id || 'N/A'),
-        itemCode: item.note || undefined,
-        userId: usersCache.current[item.user_id] || item.user_id,
-        type: (item.transaction_type || '').toUpperCase() as any,
-        destination: item.destination as OutflowDestination,
-        pcs: Number(item.quantity_pcs),
-        kgs: Number(item.quantity_kgs),
-        timestamp: new Date(item.transaction_time).getTime()
-      }));
+      const mappedTrx: Transaction[] = (trxData || []).map(item => {
+        const rawNote = item.note || '';
+        const parts = rawNote.split('#');
+        const itemCode = parts[0] || undefined;
+        const harvestPcs = parts[1] ? Number(parts[1]) : undefined;
+        const harvestKgs = parts[2] ? Number(parts[2]) : undefined;
+
+        return {
+          id: String(item.id),
+          chillerId: String(item.batch_id || 'N/A'),
+          itemCode,
+          userId: usersCache.current[item.user_id] || item.user_id,
+          type: (item.transaction_type || '').toUpperCase() as any,
+          destination: item.destination as OutflowDestination,
+          pcs: Number(item.quantity_pcs),
+          kgs: Number(item.quantity_kgs),
+          timestamp: new Date(item.transaction_time).getTime(),
+          harvestPcs,
+          harvestKgs
+        };
+      });
 
       const mappedStock: ChillerItem[] = (stockData || []).map(item => {
         const batchId = item.batch_id;
@@ -162,7 +180,12 @@ const App: React.FC = () => {
         }
       });
 
-      const finalTrx = [...mappedTrx, ...synthesizedTrxs];
+      // Ensure transaction objects themselves are also strictly unique by id
+      const uniqueTrxsMap = new Map<string, Transaction>();
+      [...mappedTrx, ...synthesizedTrxs].forEach(t => {
+        uniqueTrxsMap.set(t.id, t);
+      });
+      const finalTrx = Array.from(uniqueTrxsMap.values());
 
       setChillerTable(mappedStock);
       setTransactionTable(finalTrx);
@@ -583,6 +606,131 @@ const App: React.FC = () => {
     }
   };
 
+  const handleUpdateHarvest = async (transactionId: string, harvestPcs: number, harvestKgs: number) => {
+    const role = user?.role?.toUpperCase();
+    if (!user || (role !== 'ADMIN' && role !== 'SUPERADMIN')) {
+      alert("Hanya Admin yang diizinkan untuk menginput atau mengubah hasil harvest.");
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const { data: trxData, error: getErr } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('id', transactionId)
+        .single();
+
+      if (getErr || !trxData) {
+        throw new Error(getErr?.message || "Transaksi tidak ditemukan");
+      }
+
+      const rawNote = trxData.note || '';
+      const itemCode = rawNote.split('#')[0] || '';
+      const newNote = `${itemCode}#${harvestPcs}#${harvestKgs}`;
+
+      const { error: upErr } = await supabase
+        .from('transactions')
+        .update({ note: newNote })
+        .eq('id', transactionId);
+
+      if (upErr) throw upErr;
+
+      await fetchData(true);
+      alert("Hasil harvest berhasil diperbarui.");
+    } catch (err: any) {
+      console.error("Update Harvest Error:", err);
+      alert(`Gagal menyimpan hasil harvest: ${err?.message || err}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleUpdateHarvestBulk = async (updates: { transactionId: string, harvestPcs: number, harvestKgs: number, itemCode: string }[]) => {
+    const role = user?.role?.toUpperCase();
+    if (!user || (role !== 'ADMIN' && role !== 'SUPERADMIN')) {
+      alert("Hanya Admin yang diizinkan untuk mengimporkan data harvest.");
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const targetIds = updates.map(u => u.transactionId).filter(id => !id.startsWith('NEW-'));
+
+      const { data: trxList, error: fetchErr } = await supabase
+        .from('transactions')
+        .select('*')
+        .in('id', targetIds);
+
+      if (fetchErr) throw fetchErr;
+
+      const resultsMap = new Map((trxList || []).map(t => [String(t.id), t]));
+
+      const promises = updates.map(async u => {
+        if (u.transactionId.startsWith('NEW-')) {
+          // Format is NEW-[itemCode]||[productionDate]
+          const partStr = u.transactionId.substring(4);
+          const idx = partStr.indexOf('||');
+          const rawCode = idx !== -1 ? partStr.substring(0, idx) : partStr;
+          const rawPd = idx !== -1 ? partStr.substring(idx + 2) : '';
+
+          let lookupCode = rawCode || u.itemCode || 'N/A';
+          let resolvedItemCode = lookupCode;
+
+          const matchedItemKeyValue = Object.entries(itemsCache.current).find(([id, itemVal]) => {
+            return itemVal.code.toLowerCase().trim() === lookupCode.toLowerCase().trim() ||
+              itemVal.name.toLowerCase().trim() === lookupCode.toLowerCase().trim();
+          });
+
+          if (matchedItemKeyValue) {
+            resolvedItemCode = matchedItemKeyValue[1].code;
+          }
+
+          const newNote = `${resolvedItemCode}#${u.harvestPcs}#${u.harvestKgs}`;
+
+          let parsedTxTime = new Date().toISOString();
+          if (rawPd) {
+            try {
+              parsedTxTime = new Date(rawPd).toISOString();
+            } catch (_) { }
+          }
+
+          return supabase.from('transactions').insert({
+            batch_id: `SYS-${resolvedItemCode}-${rawPd.replace(/-/g, '') || 'GEN'}`,
+            note: newNote,
+            destination: 'IQF',
+            quantity_pcs: 0,
+            quantity_kgs: 0,
+            transaction_type: 'out',
+            user_id: user.id,
+            transaction_time: parsedTxTime
+          });
+        } else {
+          const dbTrx = resultsMap.get(u.transactionId);
+          const itemCode = u.itemCode || (dbTrx?.note || '').split('#')[0] || '';
+          const newNote = `${itemCode}#${u.harvestPcs}#${u.harvestKgs}`;
+
+          return supabase
+            .from('transactions')
+            .update({ note: newNote })
+            .eq('id', u.transactionId);
+        }
+      });
+
+      const res = await Promise.all(promises);
+      const firstErr = res.find(r => r.error);
+      if (firstErr) throw firstErr.error;
+
+      await fetchData(true);
+      alert(`${updates.length} hasil harvest berhasil diperbarui secara massal.`);
+    } catch (err: any) {
+      console.error("Bulk Update Harvest Error:", err);
+      alert(`Gagal menyimpan hasil harvest secara massal: ${err?.message || err}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleLogin = (u: User) => {
     setIsAuthenticated(true);
     setUser(u);
@@ -743,7 +891,7 @@ const App: React.FC = () => {
             {activeView === 'DASHBOARD' && <Dashboard items={chillerTable} transactions={transactionTable} onNavigate={setActiveView} />}
             {activeView === 'INFLOW' && <InflowForm onSubmitBatch={handleInflow} />}
             {activeView === 'INVENTORY' && <InventoryList user={user} items={currentInventory} onOut={handleOutflow} onBatchOut={handleBatchOut} onQCApprove={(id) => handleQCAction(id, 'APPROVE')} onQCReject={(id) => handleQCAction(id, 'REJECT')} />}
-            {activeView === 'REPORTS' && <Reports items={chillerTable} transactions={transactionTable} logs={logTable} users={[user!]} />}
+            {activeView === 'REPORTS' && <Reports items={chillerTable} transactions={transactionTable} logs={logTable} users={[user!]} currentUser={user} onUpdateHarvest={handleUpdateHarvest} onUpdateHarvestBulk={handleUpdateHarvestBulk} itemsMaster={Object.values(itemsCache.current)} />}
             {activeView === 'DAILY_REPORT' && <DailyStockReport items={chillerTable} transactions={transactionTable} />}
             {activeView === 'ITEM_DATABASE' && <ItemDatabase user={user} />}
             {activeView === 'VIRTUAL_INVENTORY' && <VirtualInventoryList />}
