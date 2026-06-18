@@ -29,6 +29,26 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users }) =
   const [filterEndDate, setFilterEndDate] = useState('');
   const [selectedItemCode, setSelectedItemCode] = useState<string>('');
 
+  // Slicing/Pagination states for faster rendering of massive lists
+  const [trxPage, setTrxPage] = useState(1);
+  const [logsPage, setLogsPage] = useState(1);
+  const ITEMS_PER_PAGE = 50;
+
+  // Reset page when filters or tab change
+  React.useEffect(() => {
+    setTrxPage(1);
+    setLogsPage(1);
+  }, [searchTerm, filterType, filterStartDate, filterEndDate, tab]);
+
+  // Fast O(1) item lookup by batchId/chillerId to avoid nested O(N*T) array scans
+  const itemsByBatchId = useMemo(() => {
+    const map: Record<string, ChillerItem> = {};
+    items.forEach(i => {
+      map[i.batchId] = i;
+    });
+    return map;
+  }, [items]);
+
   const itemCodes = useMemo(() => {
     return Array.from(new Set(items.map(i => i.itemCode))).sort();
   }, [items]);
@@ -106,7 +126,7 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users }) =
 
   const filteredTrx = useMemo(() => {
     return transactions.filter(t => {
-      const item = items.find(i => i.batchId === t.chillerId);
+      const item = itemsByBatchId[t.chillerId];
 
       const searchStr = searchTerm.toLowerCase();
       const matchesSearch =
@@ -122,7 +142,7 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users }) =
 
       return matchesSearch && matchesStart && matchesEnd && matchesType;
     });
-  }, [transactions, items, searchTerm, filterType, filterStartDate, filterEndDate]);
+  }, [transactions, itemsByBatchId, searchTerm, filterType, filterStartDate, filterEndDate]);
 
   const filteredLogs = useMemo(() => {
     return logs.filter(l =>
@@ -130,6 +150,15 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users }) =
       l.details.toLowerCase().includes(searchTerm.toLowerCase())
     );
   }, [logs, searchTerm]);
+
+  // Client-side paginate lists to keep performance ultra-high even with massive counts
+  const visibleTrx = useMemo(() => {
+    return filteredTrx.slice(0, trxPage * ITEMS_PER_PAGE);
+  }, [filteredTrx, trxPage]);
+
+  const visibleLogs = useMemo(() => {
+    return filteredLogs.slice(0, logsPage * ITEMS_PER_PAGE);
+  }, [filteredLogs, logsPage]);
 
   const resetFilters = () => {
     setSearchTerm('');
@@ -228,57 +257,71 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users }) =
 
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
         {tab === 'TRANSACTIONS' ? (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left">
-              <thead className="bg-gray-50 border-b border-gray-100">
-                <tr>
-                  <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Batch ID</th>
-                  <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Aktivitas</th>
-                  <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">User</th>
-                  <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Volume</th>
-                  <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Waktu</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {filteredTrx.length > 0 ? (
-                  filteredTrx.map(trx => {
-                    const item = items.find(i => i.batchId === trx.chillerId);
-                    return (
-                      <tr key={trx.id} className="hover:bg-gray-50/50 transition-colors">
-                        <td className="px-6 py-4">
-                          <div className="text-[10px] font-black text-red-600 uppercase tracking-tighter">{trx.chillerId}</div>
-                          <div className="text-[11px] font-bold text-gray-800 uppercase">{trx.itemCode || item?.itemCode || 'Batch Selesai/Keluar'}</div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className={`text-[8px] font-black px-2 py-1 rounded-full uppercase ${trx.type === 'IN' ? 'bg-green-100 text-green-700' :
-                            trx.type === 'OUT' ? 'bg-blue-100 text-blue-700' :
-                              trx.type.includes('APPROVED') ? 'bg-emerald-100 text-emerald-700' :
-                                'bg-red-100 text-red-700'
-                            }`}>
-                            {trx.type.replace('_', ' ')} {trx.destination && `→ ${trx.destination}`}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex items-center gap-2">
-                            <UserIcon size={12} className="text-gray-400" />
-                            <span className="text-xs font-bold text-gray-600 uppercase">{trx.userId}</span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                          <div className="text-xs font-black text-gray-800">{formatNumber(trx.pcs, 0)} Pcs</div>
-                          <div className="text-[10px] font-bold text-gray-400">{formatNumber(trx.kgs, 2)} Kg</div>
-                        </td>
-                        <td className="px-6 py-4 text-right text-[10px] font-bold text-gray-400">
-                          {new Date(trx.timestamp).toLocaleString('id-ID', { hour12: false })}
-                        </td>
-                      </tr>
-                    )
-                  })
-                ) : (
-                  <tr><td colSpan={5} className="px-6 py-12 text-center text-gray-400 font-black uppercase text-[10px]">Data tidak ditemukan</td></tr>
-                )}
-              </tbody>
-            </table>
+          <div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left">
+                <thead className="bg-gray-50 border-b border-gray-100">
+                  <tr>
+                    <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Batch ID</th>
+                    <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Aktivitas</th>
+                    <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">User</th>
+                    <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Volume</th>
+                    <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Waktu</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {visibleTrx.length > 0 ? (
+                    visibleTrx.map(trx => {
+                      const item = itemsByBatchId[trx.chillerId];
+                      return (
+                        <tr key={trx.id} className="hover:bg-gray-50/50 transition-colors">
+                          <td className="px-6 py-4">
+                            <div className="text-[10px] font-black text-red-600 uppercase tracking-tighter">{trx.chillerId}</div>
+                            <div className="text-[11px] font-bold text-gray-800 uppercase">{trx.itemCode || item?.itemCode || 'Batch Selesai/Keluar'}</div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className={`text-[8px] font-black px-2 py-1 rounded-full uppercase ${trx.type === 'IN' ? 'bg-green-100 text-green-700' :
+                                trx.type === 'OUT' ? 'bg-blue-100 text-blue-700' :
+                                  trx.type.includes('APPROVED') ? 'bg-emerald-100 text-emerald-700' :
+                                    'bg-red-100 text-red-700'
+                              }`}>
+                              {trx.type.replace('_', ' ')} {trx.destination && `→ ${trx.destination}`}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-2">
+                              <UserIcon size={12} className="text-gray-400" />
+                              <span className="text-xs font-bold text-gray-600 uppercase">{trx.userId}</span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            <div className="text-xs font-black text-gray-800">{formatNumber(trx.pcs, 0)} Pcs</div>
+                            <div className="text-[10px] font-bold text-gray-400">{formatNumber(trx.kgs, 2)} Kg</div>
+                          </td>
+                          <td className="px-6 py-4 text-right text-[10px] font-bold text-gray-400">
+                            {new Date(trx.timestamp).toLocaleString('id-ID', { hour12: false })}
+                          </td>
+                        </tr>
+                      )
+                    })
+                  ) : (
+                    <tr><td colSpan={5} className="px-6 py-12 text-center text-gray-400 font-black uppercase text-[10px]">Data tidak ditemukan</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {filteredTrx.length > visibleTrx.length && (
+              <div className="p-4 flex justify-center border-t border-gray-100 bg-gray-50/50">
+                <button
+                  type="button"
+                  onClick={() => setTrxPage(prev => prev + 1)}
+                  className="px-6 py-2 bg-white hover:bg-gray-100 text-red-600 font-black text-xs uppercase tracking-wider rounded-xl border-2 border-red-50 hover:border-red-100 transition-all shadow-md flex items-center gap-2 active:scale-95 cursor-pointer outline-none"
+                >
+                  Lihat Lebih Banyak ({filteredTrx.length - visibleTrx.length} sisa)
+                </button>
+              </div>
+            )}
           </div>
         ) : tab === 'ALLOCATION' ? (
           <div className="p-6">
@@ -357,8 +400,8 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users }) =
                         </td>
                         <td className="px-6 py-4">
                           <span className={`text-[8px] font-black px-2 py-1 rounded-full uppercase ${trx.type === 'IN' ? 'bg-green-100 text-green-700' :
-                            trx.type === 'OUT' ? 'bg-blue-100 text-blue-700' :
-                              'bg-gray-100 text-gray-700'
+                              trx.type === 'OUT' ? 'bg-blue-100 text-blue-700' :
+                                'bg-gray-100 text-gray-700'
                             }`}>
                             {trx.type} {trx.destination && `→ ${trx.destination}`}
                           </span>
@@ -387,20 +430,38 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users }) =
             )}
           </div>
         ) : (
-          <div className="divide-y divide-gray-100">
-            {filteredLogs.map(log => (
-              <div key={log.id} className="p-4 flex items-start gap-4 hover:bg-gray-50 transition-colors">
-                <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center shrink-0"><Activity size={16} /></div>
-                <div className="flex-1">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-[10px] font-black text-red-600 uppercase">{log.action}</span>
-                    <span className="text-[10px] font-bold text-gray-400">{new Date(log.timestamp).toLocaleString()}</span>
+          <div>
+            <div className="divide-y divide-gray-100">
+              {visibleLogs.length > 0 ? (
+                visibleLogs.map(log => (
+                  <div key={log.id} className="p-4 flex items-start gap-4 hover:bg-gray-50 transition-colors">
+                    <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center shrink-0"><Activity size={16} /></div>
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[10px] font-black text-red-600 uppercase">{log.action}</span>
+                        <span className="text-[10px] font-bold text-gray-400">{new Date(log.timestamp).toLocaleString()}</span>
+                      </div>
+                      <p className="text-sm font-bold text-gray-700">{log.details}</p>
+                      <span className="text-[9px] font-bold text-gray-400 uppercase">User: {log.userId}</span>
+                    </div>
                   </div>
-                  <p className="text-sm font-bold text-gray-700">{log.details}</p>
-                  <span className="text-[9px] font-bold text-gray-400 uppercase">User: {log.userId}</span>
-                </div>
+                ))
+              ) : (
+                <div className="px-6 py-12 text-center text-gray-400 font-black uppercase text-[10px]">Log tidak ditemukan</div>
+              )}
+            </div>
+
+            {filteredLogs.length > visibleLogs.length && (
+              <div className="p-4 flex justify-center border-t border-gray-100 bg-gray-50/50">
+                <button
+                  type="button"
+                  onClick={() => setLogsPage(prev => prev + 1)}
+                  className="px-6 py-2 bg-white hover:bg-gray-100 text-red-600 font-black text-xs uppercase tracking-wider rounded-xl border-2 border-red-50 hover:border-red-100 transition-all shadow-md flex items-center gap-2 active:scale-95 cursor-pointer outline-none"
+                >
+                  Lihat Lebih Banyak ({filteredLogs.length - visibleLogs.length} sisa)
+                </button>
               </div>
-            ))}
+            )}
           </div>
         )}
       </div>
