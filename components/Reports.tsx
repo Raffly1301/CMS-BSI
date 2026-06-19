@@ -11,8 +11,11 @@ import {
   Package,
   Filter,
   RotateCcw,
-  Calendar
+  Calendar,
+  FileText
 } from 'lucide-react';
+
+declare const html2pdf: any;
 
 interface ReportsProps {
   items: ChillerItem[];
@@ -23,6 +26,7 @@ interface ReportsProps {
 
 const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users }) => {
   const [tab, setTab] = useState<'TRANSACTIONS' | 'LOGS' | 'STOCK_CARD' | 'ALLOCATION'>('TRANSACTIONS');
+  const [isExporting, setIsExporting] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<Transaction['type'] | 'ALL'>('ALL');
   const [filterStartDate, setFilterStartDate] = useState('');
@@ -167,18 +171,74 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users }) =
     setFilterEndDate('');
   };
 
+  const downloadPDF = () => {
+    setIsExporting(true);
+    // Give state change a tiny tick to render
+    setTimeout(() => {
+      const element = document.getElementById('reports-print-template');
+      if (!element) {
+        setIsExporting(false);
+        return;
+      }
+
+      let titleLabel = 'LAPORAN';
+      if (tab === 'TRANSACTIONS') titleLabel = 'MUTASI_TRANSAKSI';
+      else if (tab === 'STOCK_CARD') titleLabel = `KARTU_STOK_${selectedItemCode || 'SEMUA'}`;
+      else if (tab === 'ALLOCATION') titleLabel = 'DISTRIBUSI_ALOKASI';
+      else if (tab === 'LOGS') titleLabel = 'LOG_AKTIVITAS';
+
+      const dateLabel = filterStartDate && filterEndDate
+        ? `${filterStartDate}_to_${filterEndDate}`
+        : filterStartDate
+          ? `dari_${filterStartDate}`
+          : filterEndDate
+            ? `sampai_${filterEndDate}`
+            : 'Semua_Waktu';
+
+      const opt = {
+        margin: [12, 12, 12, 12],
+        filename: `BSI_CMS_Laporan_${titleLabel}_${dateLabel}.pdf`,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: {
+          scale: 2,
+          useCORS: true,
+          logging: false
+        },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+      };
+
+      html2pdf().set(opt).from(element).save().then(() => {
+        setIsExporting(false);
+      }).catch((err: any) => {
+        console.error(err);
+        setIsExporting(false);
+      });
+    }, 150);
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
-      <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+      <header className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
         <div>
           <h2 className="text-2xl font-black text-gray-900 tracking-tight uppercase">Audit Trail & Mutasi</h2>
           <p className="text-sm text-gray-500 font-medium">Rekaman riwayat pergerakan chiller</p>
         </div>
-        <div className="flex bg-gray-100 p-1 rounded-xl overflow-x-auto">
-          <button onClick={() => setTab('TRANSACTIONS')} className={`px-4 py-2 rounded-lg text-xs font-black transition-all whitespace-nowrap ${tab === 'TRANSACTIONS' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500'}`}>TRANSAKSI</button>
-          <button onClick={() => setTab('STOCK_CARD')} className={`px-4 py-2 rounded-lg text-xs font-black transition-all whitespace-nowrap ${tab === 'STOCK_CARD' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500'}`}>KARTU STOK</button>
-          <button onClick={() => setTab('ALLOCATION')} className={`px-4 py-2 rounded-lg text-xs font-black transition-all whitespace-nowrap ${tab === 'ALLOCATION' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500'}`}>LAP. ALOKASI</button>
-          <button onClick={() => setTab('LOGS')} className={`px-4 py-2 rounded-lg text-xs font-black transition-all whitespace-nowrap ${tab === 'LOGS' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500'}`}>LOG SISTEM</button>
+        <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
+          <div className="flex bg-gray-100 p-1 rounded-xl overflow-x-auto">
+            <button onClick={() => setTab('TRANSACTIONS')} className={`px-4 py-2 rounded-lg text-xs font-black transition-all whitespace-nowrap ${tab === 'TRANSACTIONS' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500'}`}>TRANSAKSI</button>
+            <button onClick={() => setTab('STOCK_CARD')} className={`px-4 py-2 rounded-lg text-xs font-black transition-all whitespace-nowrap ${tab === 'STOCK_CARD' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500'}`}>KARTU STOK</button>
+            <button onClick={() => setTab('ALLOCATION')} className={`px-4 py-2 rounded-lg text-xs font-black transition-all whitespace-nowrap ${tab === 'ALLOCATION' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500'}`}>LAP. ALOKASI</button>
+            <button onClick={() => setTab('LOGS')} className={`px-4 py-2 rounded-lg text-xs font-black transition-all whitespace-nowrap ${tab === 'LOGS' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500'}`}>LOG SISTEM</button>
+          </div>
+          <button
+            type="button"
+            onClick={downloadPDF}
+            className="flex items-center gap-1.5 px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-md active:scale-95 cursor-pointer outline-none shrink-0"
+            title="Download PDF Laporan"
+          >
+            <FileText size={14} />
+            <span>Download PDF</span>
+          </button>
         </div>
       </header>
 
@@ -255,7 +315,42 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users }) =
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <div id="reports-export-area" className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden p-0">
+        {isExporting && (
+          <div className="border-b-2 border-red-600 pb-4 mb-6 px-6 pt-6 animate-in fade-in">
+            <div className="flex justify-between items-start">
+              <div>
+                <h1 className="text-lg font-black text-gray-900 tracking-tight">BOUNTY SEGAR INDONESIA (BSI)</h1>
+                <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Chiller Management System (CMS)</p>
+                <p className="text-[9px] text-gray-400">Gudang Penyimpanan Dingin & Logistik</p>
+              </div>
+              <div className="text-right">
+                <span className="text-[10px] font-black text-red-600 bg-red-50 px-2.5 py-1 rounded-full uppercase tracking-wider border border-red-100">
+                  LAPORAN RESMI
+                </span>
+                <p className="text-[9px] text-gray-400 mt-2 font-medium">Tanggal Cetak: {new Date().toLocaleString('id-ID')}</p>
+              </div>
+            </div>
+            <div className="mt-4 pt-4 border-t border-gray-100 grid grid-cols-2 gap-4">
+              <div>
+                <span className="text-[8px] font-black text-gray-400 uppercase tracking-widest">Jenis Laporan</span>
+                <p className="text-[11px] font-bold text-gray-800 uppercase">
+                  {tab === 'TRANSACTIONS' ? 'Laporan Mutasi Transaksi Masuk/Keluar' :
+                    tab === 'STOCK_CARD' ? `Kartu Riwayat Stok Item: ${selectedItemCode || 'Semua'}` :
+                      tab === 'ALLOCATION' ? 'Laporan Distribusi Alokasi' : 'Log Audit Aktivitas Sistem'}
+                </p>
+              </div>
+              <div className="text-right">
+                <span className="text-[8px] font-black text-gray-400 uppercase tracking-widest">Periode Saringan</span>
+                <p className="text-[11px] font-bold text-gray-800">
+                  {filterStartDate && filterEndDate ? `${filterStartDate} s/d ${filterEndDate}` :
+                    filterStartDate ? `Dari ${filterStartDate}` :
+                      filterEndDate ? `Sampai ${filterEndDate}` : 'Seluruh Waktu Database'}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
         {tab === 'TRANSACTIONS' ? (
           <div>
             <div className="overflow-x-auto">
@@ -312,7 +407,7 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users }) =
             </div>
 
             {filteredTrx.length > visibleTrx.length && (
-              <div className="p-4 flex justify-center border-t border-gray-100 bg-gray-50/50">
+              <div data-html2canvas-ignore="true" className="p-4 flex justify-center border-t border-gray-100 bg-gray-50/50">
                 <button
                   type="button"
                   onClick={() => setTrxPage(prev => prev + 1)}
@@ -452,7 +547,7 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users }) =
             </div>
 
             {filteredLogs.length > visibleLogs.length && (
-              <div className="p-4 flex justify-center border-t border-gray-100 bg-gray-50/50">
+              <div data-html2canvas-ignore="true" className="p-4 flex justify-center border-t border-gray-100 bg-gray-50/50">
                 <button
                   type="button"
                   onClick={() => setLogsPage(prev => prev + 1)}
@@ -465,6 +560,262 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users }) =
           </div>
         )}
       </div>
+
+      {/* ========================================================= */}
+      {/* PRO-GRADE CORPORATION PRINT-OPTIMIZED DOCUMENT TEMPLATE    */}
+      {/* ========================================================= */}
+      <div style={{ position: 'absolute', left: '-9999px', top: -9999, width: '800px', zIndex: -50 }} className="bg-white">
+        <div id="reports-print-template" className="p-10 bg-white text-slate-800 space-y-8 font-sans">
+
+          {/* Header & Letterhead Block */}
+          <div className="border-b-4 border-red-600 pb-5">
+            <div className="flex justify-between items-start">
+              <div>
+                <h1 className="text-2xl font-black text-gray-900 tracking-tight uppercase">BOUNTY SEGAR INDONESIA</h1>
+                <p className="text-[11px] font-bold text-gray-500 tracking-widest uppercase mt-0.5">Chiller Management System (CMS)</p>
+                <p className="text-[9px] text-gray-400 mt-1">Gudang Logistik & Penyimpanan Rantai Dingin (Cold-Chain Warehouse & Logistics)</p>
+              </div>
+              <div className="text-right">
+                <span className="text-[9px] font-extrabold text-red-600 bg-red-50 px-3 py-1 rounded-full uppercase tracking-widest border border-red-100">
+                  {tab === 'TRANSACTIONS' ? 'LAPORAN MUTASI' :
+                    tab === 'ALLOCATION' ? 'RESUME DISTRIBUSI' :
+                      tab === 'STOCK_CARD' ? 'KARTU STOK' : 'LOG AUDIT AKTIVITAS'}
+                </span>
+                <p className="text-[9px] text-gray-400 mt-3 font-medium">No Dokumen: BSI/CMS/RPT/{Date.now().toString().slice(-6)}</p>
+                <p className="text-[9px] text-gray-400 font-medium">Tanggal Cetak: {new Date().toLocaleString('id-ID', { hour12: false })}</p>
+              </div>
+            </div>
+
+            {/* Document Meta Information */}
+            <div className="mt-5 grid grid-cols-2 gap-4 text-[10px] bg-slate-50 p-3 rounded-lg border border-slate-100">
+              <div>
+                <span className="font-extrabold text-gray-400 uppercase tracking-wider block text-[8px]">Kategori Dokumen Resmi</span>
+                <span className="font-bold text-gray-800 uppercase">
+                  {tab === 'TRANSACTIONS' ? 'Laporan Riwayat Mutasi Transaksi Barang Masuk & Keluar' :
+                    tab === 'STOCK_CARD' ? `Kartu Riwayat Stok Material: ${selectedItemCode || 'Semua Item'}` :
+                      tab === 'ALLOCATION' ? 'Detail Laporan Distribusi Alokasi Kategori' : 'Log Audit Sistem & Rekam Jejak Operator'}
+                </span>
+              </div>
+              <div className="text-right">
+                <span className="font-extrabold text-gray-400 uppercase tracking-wider block text-[8px]">Periode Laporan Aktif</span>
+                <span className="font-bold text-red-600">
+                  {filterStartDate && filterEndDate ? `${filterStartDate} s/d ${filterEndDate}` :
+                    filterStartDate ? `Dari ${filterStartDate}` :
+                      filterEndDate ? `Sampai ${filterEndDate}` : 'Seluruh Database Riwayat'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Conditional Sections based on Tab states */}
+          {tab === 'TRANSACTIONS' && (
+            <div className="space-y-4">
+              <h2 className="text-xs font-black text-slate-900 uppercase tracking-widest border-b border-slate-200 pb-1.5 flex justify-between">
+                <span>RIWAYAT TRANSAKSI MUTASI LENGKAP (MAX 50 TRANSAKSI TERAKHIR)</span>
+                <span className="text-[9px] text-gray-400 font-bold lowercase">Urut Kronologis</span>
+              </h2>
+
+              <table className="w-full text-left text-[9px] border-collapse border border-slate-200">
+                <thead>
+                  <tr className="bg-slate-50 text-slate-600 font-extrabold border-b border-slate-200 uppercase tracking-wider">
+                    <th className="p-2 border-r border-slate-200">Batch ID</th>
+                    <th className="p-2 border-r border-slate-200">Kode Item</th>
+                    <th className="p-2 border-r border-slate-200">Aktivitas</th>
+                    <th className="p-2 border-r border-slate-200 text-right">Volume (Pcs)</th>
+                    <th className="p-2 border-r border-slate-200 text-right">Berat (Kgs)</th>
+                    <th className="p-2 border-r border-slate-200">Operator</th>
+                    <th className="p-2">Waktu Transaksi</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {filteredTrx.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="p-4 text-center text-slate-400 uppercase font-bold">Tidak ada data transaksi mutasi</td>
+                    </tr>
+                  ) : (
+                    filteredTrx.slice(0, 50).map((t) => {
+                      const item = itemsByBatchId[t.chillerId];
+                      return (
+                        <tr key={t.id} className="hover:bg-slate-50/50">
+                          <td className="p-2 font-mono font-bold text-red-600 border-r border-slate-200">{t.chillerId}</td>
+                          <td className="p-2 font-sans font-bold text-slate-700 border-r border-slate-200">{t.itemCode || item?.itemCode || 'N/A'}</td>
+                          <td className="p-2 border-r border-slate-200">
+                            <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase ${t.type === 'IN' ? 'bg-green-100 text-green-700' :
+                                t.type === 'OUT' ? 'bg-blue-100 text-blue-700' :
+                                  'bg-orange-100 text-orange-700'
+                              }`}>
+                              {t.type} {t.destination ? `→ ${t.destination}` : ''}
+                            </span>
+                          </td>
+                          <td className="p-2 text-right font-mono text-slate-800 border-r border-slate-200">{formatNumber(t.pcs, 0)}</td>
+                          <td className="p-2 text-right font-mono font-bold text-slate-900 border-r border-slate-200">{formatNumber(t.kgs, 2)}</td>
+                          <td className="p-2 font-bold text-slate-600 border-r border-slate-200 uppercase">{t.userId}</td>
+                          <td className="p-2 text-slate-400 font-mono">{new Date(t.timestamp).toLocaleString('id-ID', { hour12: false })}</td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+              {filteredTrx.length > 50 && (
+                <p className="text-[8px] text-gray-400 italic text-right">* Data dibatasi pada 50 transaksi mutasi terbaru untuk estetika layout cetak.</p>
+              )}
+            </div>
+          )}
+
+          {tab === 'ALLOCATION' && (
+            <div className="space-y-4">
+              <h2 className="text-xs font-black text-slate-900 uppercase tracking-widest border-b border-slate-200 pb-1.5">
+                TABEL RESUME DISTRIBUSI ALOKASI
+              </h2>
+
+              <table className="w-full text-left text-[9px] border-collapse border border-slate-200">
+                <thead>
+                  <tr className="bg-slate-50 text-slate-600 font-extrabold border-b border-slate-200 uppercase tracking-wider">
+                    <th className="p-2 border-r border-slate-200">Kategori Alokasi</th>
+                    <th className="p-2 border-r border-slate-200">Destinasi Detail</th>
+                    <th className="p-2 border-r border-slate-200 text-right">Volume (Pcs)</th>
+                    <th className="p-2 text-right font-bold">Total Berat (Kgs)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {allocationData.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="p-4 text-center text-slate-400 uppercase font-bold">Tidak ada data alokasi distribusi</td>
+                    </tr>
+                  ) : (
+                    allocationData.map((alloc) => (
+                      <React.Fragment key={alloc.allocation}>
+                        {alloc.destinations.map((dest, dIdx) => (
+                          <tr key={dIdx} className="hover:bg-slate-50/50">
+                            {dIdx === 0 ? (
+                              <td rowSpan={alloc.destinations.length} className="p-2 font-bold text-red-700 border-r border-slate-200 bg-red-50/10 align-middle">
+                                <div className="uppercase">{alloc.allocation}</div>
+                                <div className="text-[8px] text-gray-400 mt-1 font-medium">Accum: {formatNumber(alloc.totalKgs, 2)} Kg</div>
+                              </td>
+                            ) : null}
+                            <td className="p-2 border-r border-slate-200 uppercase font-bold text-slate-600">{dest.name}</td>
+                            <td className="p-2 text-right font-mono text-slate-800 border-r border-slate-200">{formatNumber(dest.pcs, 0)}</td>
+                            <td className="p-2 text-right font-mono font-black text-red-600">{formatNumber(dest.kgs, 2)}</td>
+                          </tr>
+                        ))}
+                      </React.Fragment>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {tab === 'STOCK_CARD' && (
+            <div className="space-y-4">
+              <h2 className="text-xs font-black text-slate-900 uppercase tracking-widest border-b border-slate-200 pb-1.5 flex justify-between">
+                <span>RIWAYAT KARTU STOK INDIVIDUAL (MAX 50 BARIS TERAKHIR)</span>
+                <span className="text-[9px] text-gray-400 font-bold uppercase font-mono">Bahan: {selectedItemCode || 'Belum Dipilih'}</span>
+              </h2>
+
+              <table className="w-full text-left text-[9px] border-collapse border border-slate-200">
+                <thead>
+                  <tr className="bg-slate-50 text-slate-600 font-extrabold border-b border-slate-200 uppercase tracking-wider">
+                    <th className="p-2 border-r border-slate-200">Waktu Kejadian</th>
+                    <th className="p-2 border-r border-slate-200">ID Batch (Uraian)</th>
+                    <th className="p-2 border-r border-slate-200">Tipe Mutasi</th>
+                    <th className="p-2 border-r border-slate-200 text-right">Debit Masuk (Kg)</th>
+                    <th className="p-2 border-r border-slate-200 text-right">Kredit Keluar (Kg)</th>
+                    <th className="p-2 bg-slate-100 text-slate-800 text-right font-bold">Saldo Akhir (Kg)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {!selectedItemCode ? (
+                    <tr>
+                      <td colSpan={6} className="p-4 text-center text-slate-400 uppercase font-bold">Pilih item material secara dinamis pada aplikasi web untuk merender kartu stok</td>
+                    </tr>
+                  ) : stockCardData.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="p-4 text-center text-slate-400 uppercase font-bold">Tidak ada riwayat untuk material ini</td>
+                    </tr>
+                  ) : (
+                    stockCardData.slice(0, 50).map((trx) => (
+                      <tr key={trx.id} className="hover:bg-slate-50/50">
+                        <td className="p-2 text-slate-400 font-mono border-r border-slate-200">{new Date(trx.timestamp).toLocaleString('id-ID', { hour12: false })}</td>
+                        <td className="p-2 font-mono font-bold text-red-600 border-r border-slate-200">{trx.chillerId}</td>
+                        <td className="p-2 border-r border-slate-200">
+                          <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase ${trx.type === 'IN' ? 'bg-green-100 text-green-700' :
+                              trx.type === 'OUT' ? 'bg-blue-100 text-blue-700' :
+                                'bg-gray-100 text-gray-700'
+                            }`}>
+                            {trx.type} {trx.destination ? `→ ${trx.destination}` : ''}
+                          </span>
+                        </td>
+                        <td className="p-2 text-right font-mono text-green-700 font-bold border-r border-slate-200">
+                          {(trx.type === 'IN' || trx.type === 'QC_REJECTED') ? `+${formatNumber(trx.kgs, 2)}` : '-'}
+                        </td>
+                        <td className="p-2 text-right font-mono text-blue-700 font-bold border-r border-slate-200">
+                          {trx.type === 'OUT' ? `-${formatNumber(trx.kgs, 2)}` : '-'}
+                        </td>
+                        <td className="p-2 text-right font-mono font-black text-slate-900 bg-slate-50/40">
+                          {formatNumber(trx.balanceKgs, 2)} Kg / <span className="text-[8px] text-gray-400">{formatNumber(trx.balancePcs, 0)} Pcs</span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+              {stockCardData.length > 50 && (
+                <p className="text-[8px] text-gray-400 italic text-right">* Data stock card dibatasi pada 50 records terbaru.</p>
+              )}
+            </div>
+          )}
+
+          {tab === 'LOGS' && (
+            <div className="space-y-4">
+              <h2 className="text-xs font-black text-slate-900 uppercase tracking-widest border-b border-slate-200 pb-1.5 flex justify-between">
+                <span>RIWAYAT AUDIT LOGS AKTIVITAS OPERASIONAL (MAX 40 BARIS TERAKHIR)</span>
+                <span className="text-[9px] text-gray-400 font-bold lowercase">Keamanan Portal</span>
+              </h2>
+
+              <table className="w-full text-left text-[9px] border-collapse border border-slate-200">
+                <thead>
+                  <tr className="bg-slate-50 text-slate-600 font-extrabold border-b border-slate-200 uppercase tracking-wider">
+                    <th className="p-2 border-r border-slate-200">Waktu Kejadian</th>
+                    <th className="p-2 border-r border-slate-200">Tipe Modul</th>
+                    <th className="p-2 border-r border-slate-200">Uraian Kasus Log</th>
+                    <th className="p-2">Identitas User</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {filteredLogs.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="p-4 text-center text-slate-400 uppercase font-bold">Tidak ada log sistem terekam</td>
+                    </tr>
+                  ) : (
+                    filteredLogs.slice(0, 40).map((log) => (
+                      <tr key={log.id} className="hover:bg-slate-50/50">
+                        <td className="p-2 text-slate-400 font-mono border-r border-slate-200">{new Date(log.timestamp).toLocaleString('id-ID', { hour12: false })}</td>
+                        <td className="p-2 font-black text-red-600 border-r border-slate-200 uppercase tracking-tighter">{log.action}</td>
+                        <td className="p-2 font-bold text-slate-700 border-r border-slate-200">{log.details}</td>
+                        <td className="p-2 font-extrabold text-slate-600 uppercase">{log.userId}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+              {filteredLogs.length > 40 && (
+                <p className="text-[8px] text-gray-400 italic text-right">* Logs dibatasi pada 40 record terbaru.</p>
+              )}
+            </div>
+          )}
+
+
+          {/* Professional Footer Notice */}
+          <div className="pt-6 border-t border-slate-200 flex justify-between items-center text-[8px] text-slate-400 font-bold uppercase tracking-wider">
+            <span>BOUNTY SEGAR INDONESIA (BSI) CMS REGISTERED OFFICIAL AUDIT SHEET</span>
+            <span>Halaman 1 dari 1</span>
+          </div>
+
+        </div>
+      </div>
+
     </div>
   );
 };
