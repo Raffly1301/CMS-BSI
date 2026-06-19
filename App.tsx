@@ -255,6 +255,29 @@ const App: React.FC = () => {
     let failCount = 0;
     let lastErrorMsg = "";
 
+    // Keep track of used batch IDs for each unique datePart during this save operation
+    const usedBatchIdsMap = new Map<string, Set<string>>();
+
+    const getExistingBatchIds = async (datePart: string) => {
+      if (usedBatchIdsMap.has(datePart)) {
+        return usedBatchIdsMap.get(datePart)!;
+      }
+      const set = new Set<string>();
+      try {
+        const { data, error } = await supabase
+          .from('chiller_stock')
+          .select('batch_id')
+          .like('batch_id', `BSI-${datePart}-%`);
+        if (!error && data) {
+          data.forEach(row => set.add(row.batch_id));
+        }
+      } catch (e) {
+        console.error("Error fetching existing batch ids:", e);
+      }
+      usedBatchIdsMap.set(datePart, set);
+      return set;
+    };
+
     for (const item of newItems) {
       const formatDateForBatch = (d: string) => {
         const parts = d.split('-');
@@ -264,7 +287,22 @@ const App: React.FC = () => {
       const pdFmt = formatDateForBatch(item.productionDate);
       const sdFmt = formatDateForBatch(item.slaughteringDate);
       const datePart = pdFmt === sdFmt ? pdFmt : `${pdFmt}${sdFmt}`;
-      const batchId = `BSI-${datePart}-${Math.floor(Math.random() * 900 + 100)}`;
+
+      const existingSet = await getExistingBatchIds(datePart);
+      let batchId = "";
+      let attempts = 0;
+      do {
+        let suffix = "";
+        if (attempts < 50) {
+          suffix = String(Math.floor(Math.random() * 900 + 100)); // 100-999
+        } else {
+          suffix = String(Math.floor(Math.random() * 9000 + 1000)); // 1000-9999
+        }
+        batchId = `BSI-${datePart}-${suffix}`;
+        attempts++;
+      } while (existingSet.has(batchId) && attempts < 100);
+
+      existingSet.add(batchId);
       const currentItemCode = itemsCache.current[item.itemsId]?.code || 'N/A';
 
       try {

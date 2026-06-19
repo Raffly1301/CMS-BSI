@@ -59,6 +59,7 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
   );
   const [unit, setUnit] = useState<'KGS' | 'PCS'>('KGS');
   const [searchTerm, setSearchTerm] = useState('');
+  const [showDetail, setShowDetail] = useState<boolean>(false);
   const reportRef = useRef<HTMLDivElement>(null);
 
   // Pre-group transactions by chillerId for faster performance (avoids O(N*T) loop)
@@ -74,14 +75,12 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
   }, [transactions]);
 
   // Find active categories for IN and OUT in the selected date range
-  const { activeInCats, activeOutCats, hasOtherIn, hasOtherOut } = useMemo(() => {
+  const { activeInCats, activeOutCats } = useMemo(() => {
     const startRange = new Date(startDate).setHours(0, 0, 0, 0);
     const endRange = new Date(endDate).setHours(23, 59, 59, 999);
 
     const activeInSet = new Set<string>();
     const activeOutSet = new Set<string>();
-    let otherInCount = 0;
-    let otherOutCount = 0;
 
     transactions.forEach(t => {
       if (t.timestamp >= startRange && t.timestamp <= endRange) {
@@ -89,31 +88,27 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
           const item = items.find(i => i.batchId === t.chillerId);
           const src = (item?.source || 'INFLOW').toUpperCase();
           const norm = normalizeCategory(src);
-          if (ALL_CATEGORIES.includes(norm)) {
-            activeInSet.add(norm);
-          } else {
-            otherInCount++;
-          }
+          activeInSet.add(norm);
         } else if (t.type === 'OUT') {
           const dest = (t.destination || 'OUTFLOW').toUpperCase();
           const norm = normalizeCategory(dest);
-          if (ALL_CATEGORIES.includes(norm)) {
-            activeOutSet.add(norm);
-          } else {
-            otherOutCount++;
-          }
+          activeOutSet.add(norm);
         }
       }
     });
 
-    const activeIn = ALL_CATEGORIES.filter(cat => activeInSet.has(cat));
-    const activeOut = ALL_CATEGORIES.filter(cat => activeOutSet.has(cat));
+    const activeIn = [
+      ...ALL_CATEGORIES.filter(cat => activeInSet.has(cat)),
+      ...Array.from(activeInSet).filter(cat => !ALL_CATEGORIES.includes(cat)).sort((a, b) => a.localeCompare(b))
+    ];
+    const activeOut = [
+      ...ALL_CATEGORIES.filter(cat => activeOutSet.has(cat)),
+      ...Array.from(activeOutSet).filter(cat => !ALL_CATEGORIES.includes(cat)).sort((a, b) => a.localeCompare(b))
+    ];
 
     return {
       activeInCats: activeIn,
-      activeOutCats: activeOut,
-      hasOtherIn: otherInCount > 0,
-      hasOtherOut: otherOutCount > 0
+      activeOutCats: activeOut
     };
   }, [startDate, endDate, transactions, items]);
 
@@ -267,26 +262,11 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
     const opening = unit === 'KGS' ? openingKgs : openingPcs;
     const endingStock = opening + totalIn - totalOut;
 
-    // Split category map and other
-    const categorizedInMap: Record<string, number> = {};
-    let otherIn = 0;
-    Object.entries(inMap).forEach(([cat, val]) => {
-      if (ALL_CATEGORIES.includes(cat)) {
-        categorizedInMap[cat] = val;
-      } else {
-        otherIn += val;
-      }
-    });
+    const categorizedInMap: Record<string, number> = inMap;
+    const otherIn = 0;
 
-    const categorizedOutMap: Record<string, number> = {};
-    let otherOut = 0;
-    Object.entries(outMap).forEach(([cat, val]) => {
-      if (ALL_CATEGORIES.includes(cat)) {
-        categorizedOutMap[cat] = val;
-      } else {
-        otherOut += val;
-      }
-    });
+    const categorizedOutMap: Record<string, number> = outMap;
+    const otherOut = 0;
 
     return {
       opening,
@@ -342,26 +322,11 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
     const opening = unit === 'KGS' ? openingKgs : openingPcs;
     const endingStock = opening + totalIn - totalOut;
 
-    // Split category map and other
-    const categorizedInMap: Record<string, number> = {};
-    let otherIn = 0;
-    Object.entries(inMap).forEach(([cat, val]) => {
-      if (ALL_CATEGORIES.includes(cat)) {
-        categorizedInMap[cat] = val;
-      } else {
-        otherIn += val;
-      }
-    });
+    const categorizedInMap: Record<string, number> = inMap;
+    const otherIn = 0;
 
-    const categorizedOutMap: Record<string, number> = {};
-    let otherOut = 0;
-    Object.entries(outMap).forEach(([cat, val]) => {
-      if (ALL_CATEGORIES.includes(cat)) {
-        categorizedOutMap[cat] = val;
-      } else {
-        otherOut += val;
-      }
-    });
+    const categorizedOutMap: Record<string, number> = outMap;
+    const otherOut = 0;
 
     return {
       opening,
@@ -479,7 +444,7 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
       </header>
 
       {/* Filter Bar */}
-      <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <div className="space-y-1.5 lg:col-span-1">
           <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
             <Calendar size={12} className="text-red-600" /> Tanggal Laporan
@@ -502,7 +467,7 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
           </div>
         </div>
 
-        <div className="space-y-1.5">
+        <div className="space-y-1.5 lg:col-span-2">
           <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
             <Search size={12} className="text-red-600" /> Cari Item
           </label>
@@ -539,6 +504,28 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
                 {u}
               </button>
             ))}
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
+            <Info size={12} className="text-red-600" /> Detail Kolom
+          </label>
+          <div className="flex bg-gray-100 p-1 rounded-xl h-[42px]">
+            <button
+              onClick={() => setShowDetail(false)}
+              className={`flex-1 rounded-lg text-[10px] font-black transition-all ${!showDetail ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+              title="Tampilkan hanya total IN dan OUT"
+            >
+              RINGKAS
+            </button>
+            <button
+              onClick={() => setShowDetail(true)}
+              className={`flex-1 rounded-lg text-[10px] font-black transition-all ${showDetail ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+              title="Tampilkan breakdown per kategori"
+            >
+              DETAIL
+            </button>
           </div>
         </div>
       </div>
@@ -585,20 +572,14 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
                   <th className="px-2 py-1.5 text-[8.5px] font-black text-gray-500 uppercase tracking-tight text-left min-w-[120px]">Kode Item</th>
                   <th className="px-1.5 py-1.5 text-[8.5px] font-black text-gray-500 uppercase tracking-tight text-right min-w-[70px]">Opening</th>
 
-                  {activeInCats.map(cat => (
+                  {showDetail && activeInCats.map(cat => (
                     <th key={`in-${cat}`} className="px-1.5 py-1.5 text-[8.5px] font-black text-gray-400 uppercase tracking-tight text-right min-w-[55px]">{cat} (IN)</th>
                   ))}
-                  {hasOtherIn && (
-                    <th className="px-1.5 py-1.5 text-[8.5px] font-black text-gray-400 uppercase tracking-tight text-right min-w-[55px]">OTHER (IN)</th>
-                  )}
                   <th className="px-1.5 py-1.5 text-[8.5px] font-black text-green-700 bg-green-50/50 uppercase tracking-tight text-right min-w-[70px]">TOTAL IN</th>
 
-                  {activeOutCats.map(cat => (
+                  {showDetail && activeOutCats.map(cat => (
                     <th key={`out-${cat}`} className="px-1.5 py-1.5 text-[8.5px] font-black text-gray-400 uppercase tracking-tight text-right min-w-[55px]">{cat} (OUT)</th>
                   ))}
-                  {hasOtherOut && (
-                    <th className="px-1.5 py-1.5 text-[8.5px] font-black text-gray-400 uppercase tracking-tight text-right min-w-[55px]">OTHER (OUT)</th>
-                  )}
                   <th className="px-1.5 py-1.5 text-[8.5px] font-black text-blue-700 bg-blue-50/50 uppercase tracking-tight text-right min-w-[70px]">TOTAL OUT</th>
 
                   <th className="px-2 py-1.5 text-[8.5px] font-black text-red-700 bg-red-50/50 uppercase tracking-tight text-right min-w-[85px]">Ending Stock</th>
@@ -628,7 +609,7 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
                         <td className="px-1.5 py-1.5 text-right font-mono text-[12px] text-black">
                           {tbl.opening > 0 ? formatNumber(tbl.opening, unit === 'KGS' ? 2 : 0) : '0'}
                         </td>
-                        {activeInCats.map(cat => {
+                        {showDetail && activeInCats.map(cat => {
                           const val = tbl.categorizedInMap[cat] || 0;
                           return (
                             <td key={`val-in-${cat}`} className="px-1.5 py-1.5 text-right font-mono text-[12px] text-black">
@@ -636,16 +617,11 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
                             </td>
                           );
                         })}
-                        {hasOtherIn && (
-                          <td className="px-1.5 py-1.5 text-right font-mono text-[12px] text-black">
-                            {tbl.otherIn > 0 ? formatNumber(tbl.otherIn, unit === 'KGS' ? 2 : 0) : ''}
-                          </td>
-                        )}
                         <td className="px-1.5 py-1.5 text-right font-mono font-black text-green-700 bg-green-50/10 text-[12px]">
                           {tbl.totalIn > 0 ? formatNumber(tbl.totalIn, unit === 'KGS' ? 2 : 0) : '0'}
                         </td>
 
-                        {activeOutCats.map(cat => {
+                        {showDetail && activeOutCats.map(cat => {
                           const val = tbl.categorizedOutMap[cat] || 0;
                           return (
                             <td key={`val-out-${cat}`} className="px-1.5 py-1.5 text-right font-mono text-[12px] text-black">
@@ -653,11 +629,6 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
                             </td>
                           );
                         })}
-                        {hasOtherOut && (
-                          <td className="px-1.5 py-1.5 text-right font-mono text-[12px] text-black">
-                            {tbl.otherOut > 0 ? formatNumber(tbl.otherOut, unit === 'KGS' ? 2 : 0) : ''}
-                          </td>
-                        )}
                         <td className="px-1.5 py-1.5 text-right font-mono font-black text-blue-700 bg-blue-50/10 text-[12px]">
                           {tbl.totalOut > 0 ? formatNumber(tbl.totalOut, unit === 'KGS' ? 2 : 0) : '0'}
                         </td>
@@ -684,7 +655,7 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
                             <td className="px-1.5 py-1 text-right font-mono text-[12px] text-black">
                               {batchTbl.opening > 0 ? formatNumber(batchTbl.opening, unit === 'KGS' ? 2 : 0) : '0'}
                             </td>
-                            {activeInCats.map(cat => {
+                            {showDetail && activeInCats.map(cat => {
                               const val = batchTbl.categorizedInMap[cat] || 0;
                               return (
                                 <td key={`batch-in-${cat}`} className="px-1.5 py-1 text-right font-mono text-[12px] text-black">
@@ -692,16 +663,11 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
                                 </td>
                               );
                             })}
-                            {hasOtherIn && (
-                              <td className="px-1.5 py-1 text-right font-mono text-[12px] text-black">
-                                {batchTbl.otherIn > 0 ? formatNumber(batchTbl.otherIn, unit === 'KGS' ? 2 : 0) : ''}
-                              </td>
-                            )}
                             <td className="px-1.5 py-1 text-right font-mono font-bold text-green-600 bg-green-50/5 text-[12px]">
                               {batchTbl.totalIn > 0 ? formatNumber(batchTbl.totalIn, unit === 'KGS' ? 2 : 0) : '0'}
                             </td>
 
-                            {activeOutCats.map(cat => {
+                            {showDetail && activeOutCats.map(cat => {
                               const val = batchTbl.categorizedOutMap[cat] || 0;
                               return (
                                 <td key={`batch-out-${cat}`} className="px-1.5 py-1 text-right font-mono text-[12px] text-black">
@@ -709,11 +675,6 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
                                 </td>
                               );
                             })}
-                            {hasOtherOut && (
-                              <td className="px-1.5 py-1 text-right font-mono text-[12px] text-black">
-                                {batchTbl.otherOut > 0 ? formatNumber(batchTbl.otherOut, unit === 'KGS' ? 2 : 0) : ''}
-                              </td>
-                            )}
                             <td className="px-1.5 py-1 text-right font-mono font-bold text-blue-600 bg-blue-50/5 text-[12px]">
                               {batchTbl.totalOut > 0 ? formatNumber(batchTbl.totalOut, unit === 'KGS' ? 2 : 0) : '0'}
                             </td>
@@ -742,7 +703,7 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
                         {formatNumber(totalOpening, unit === 'KGS' ? 2 : 0)}
                       </td>
 
-                      {activeInCats.map(cat => {
+                      {showDetail && activeInCats.map(cat => {
                         const totalCatIn = filteredData.reduce((acc, r) => acc + (getRowTableBreakdown(r.name, r.isWIPGroup).categorizedInMap[cat] || 0), 0);
                         return (
                           <td key={`total-in-${cat}`} className="px-1.5 py-2 text-right text-[10px] font-mono font-black text-green-400">
@@ -750,19 +711,11 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
                           </td>
                         );
                       })}
-                      {hasOtherIn && (() => {
-                        const totalOtherIn = filteredData.reduce((acc, r) => acc + getRowTableBreakdown(r.name, r.isWIPGroup).otherIn, 0);
-                        return (
-                          <td className="px-1.5 py-2 text-right text-[10px] font-mono font-black text-green-400">
-                            {totalOtherIn > 0 ? formatNumber(totalOtherIn, unit === 'KGS' ? 2 : 0) : ''}
-                          </td>
-                        );
-                      })()}
                       <td className="px-1.5 py-2 text-right text-[10px] font-mono font-black text-green-400 bg-gray-800">
                         {formatNumber(totalTotalIn, unit === 'KGS' ? 2 : 0)}
                       </td>
 
-                      {activeOutCats.map(cat => {
+                      {showDetail && activeOutCats.map(cat => {
                         const totalCatOut = filteredData.reduce((acc, r) => acc + (getRowTableBreakdown(r.name, r.isWIPGroup).categorizedOutMap[cat] || 0), 0);
                         return (
                           <td key={`total-out-${cat}`} className="px-1.5 py-2 text-right text-[10px] font-mono font-black text-blue-400">
@@ -770,14 +723,6 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
                           </td>
                         );
                       })}
-                      {hasOtherOut && (() => {
-                        const totalOtherOut = filteredData.reduce((acc, r) => acc + getRowTableBreakdown(r.name, r.isWIPGroup).otherOut, 0);
-                        return (
-                          <td className="px-1.5 py-2 text-right text-[10px] font-mono font-black text-blue-400">
-                            {totalOtherOut > 0 ? formatNumber(totalOtherOut, unit === 'KGS' ? 2 : 0) : ''}
-                          </td>
-                        );
-                      })()}
                       <td className="px-1.5 py-2 text-right text-[10px] font-mono font-black text-blue-400 bg-gray-800">
                         {formatNumber(totalTotalOut, unit === 'KGS' ? 2 : 0)}
                       </td>
