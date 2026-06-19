@@ -373,78 +373,6 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
     });
   }, [items, transactionsByChillerId, startDate, endDate]);
 
-  const getRowTableBreakdown = (rowName: string, isWIPRow: boolean = false) => {
-    const startRange = new Date(startDate).setHours(0, 0, 0, 0);
-    const endRange = new Date(endDate).setHours(23, 59, 59, 999);
-
-    const groupItems = isWIPRow
-      ? items.filter(i => !!i.isWIP)
-      : items.filter(i => i.itemCode === rowName && !i.isWIP);
-
-    const groupTrx: Transaction[] = [];
-    groupItems.forEach(i => {
-      const trxList = transactionsByChillerId[i.batchId];
-      if (trxList) {
-        groupTrx.push(...trxList);
-      }
-    });
-
-    const dayInTrx = groupTrx.filter(t => t.type === 'IN' && t.timestamp >= startRange && t.timestamp <= endRange);
-    const dayOutTrx = groupTrx.filter(t => t.type === 'OUT' && t.timestamp >= startRange && t.timestamp <= endRange);
-
-    const sumT = (arr: Transaction[], key: 'kgs' | 'pcs') => arr.reduce((acc, curr) => acc + (curr[key] || 0), 0);
-
-    // Opening Stock
-    const beforeInK = sumT(groupTrx.filter(t => t.type === 'IN' && t.timestamp < startRange), 'kgs');
-    const beforeOutK = sumT(groupTrx.filter(t => t.type === 'OUT' && t.timestamp < startRange), 'kgs');
-    const openingKgs = beforeInK - beforeOutK;
-
-    const beforeInP = sumT(groupTrx.filter(t => t.type === 'IN' && t.timestamp < startRange), 'pcs');
-    const beforeOutP = sumT(groupTrx.filter(t => t.type === 'OUT' && t.timestamp < startRange), 'pcs');
-    const openingPcs = beforeInP - beforeOutP;
-
-    // Map through sources
-    const inMap: Record<string, number> = {};
-    dayInTrx.forEach(t => {
-      const item = groupItems.find(i => i.batchId === t.chillerId) || items.find(i => i.batchId === t.chillerId);
-      const src = (item?.source || 'INFLOW').toUpperCase();
-      const norm = normalizeCategory(src);
-      const val = unit === 'KGS' ? t.kgs : t.pcs;
-      inMap[norm] = (inMap[norm] || 0) + val;
-    });
-
-    // Map through destinations
-    const outMap: Record<string, number> = {};
-    dayOutTrx.forEach(t => {
-      const dest = (t.destination || 'OUTFLOW').toUpperCase();
-      const norm = normalizeCategory(dest);
-      const val = unit === 'KGS' ? t.kgs : t.pcs;
-      outMap[norm] = (outMap[norm] || 0) + val;
-    });
-
-    const totalIn = unit === 'KGS' ? sumT(dayInTrx, 'kgs') : sumT(dayInTrx, 'pcs');
-    const totalOut = unit === 'KGS' ? sumT(dayOutTrx, 'kgs') : sumT(dayOutTrx, 'pcs');
-    const opening = unit === 'KGS' ? openingKgs : openingPcs;
-    const endingStock = opening + totalIn - totalOut;
-
-    const categorizedInMap: Record<string, number> = inMap;
-    const otherIn = 0;
-
-    const categorizedOutMap: Record<string, number> = outMap;
-    const otherOut = 0;
-
-    return {
-      opening,
-      categorizedInMap,
-      otherIn,
-      totalIn,
-      categorizedOutMap,
-      otherOut,
-      totalOut,
-      endingStock
-    };
-  };
-
   const getBatchTableBreakdown = (batch: ChillerItem) => {
     const startRange = new Date(startDate).setHours(0, 0, 0, 0);
     const endRange = new Date(endDate).setHours(23, 59, 59, 999);
@@ -516,16 +444,54 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
     return groupItems.filter(i => {
       const batchTrx = transactionsByChillerId[i.batchId] || [];
       const sumT = (arr: Transaction[], key: 'kgs' | 'pcs') => arr.reduce((acc, curr) => acc + (curr[key] || 0), 0);
+      const k = unit === 'KGS' ? 'kgs' : 'pcs';
 
-      const beforeIn = sumT(batchTrx.filter(t => t.type === 'IN' && t.timestamp < startRange), 'kgs');
-      const beforeOut = sumT(batchTrx.filter(t => t.type === 'OUT' && t.timestamp < startRange), 'kgs');
+      const beforeIn = sumT(batchTrx.filter(t => t.type === 'IN' && t.timestamp < startRange), k);
+      const beforeOut = sumT(batchTrx.filter(t => t.type === 'OUT' && t.timestamp < startRange), k);
       const opening = beforeIn - beforeOut;
 
-      const dayIn = sumT(batchTrx.filter(t => t.type === 'IN' && t.timestamp >= startRange && t.timestamp <= endRange), 'kgs');
-      const dayOut = sumT(batchTrx.filter(t => t.type === 'OUT' && t.timestamp >= startRange && t.timestamp <= endRange), 'kgs');
+      const dayIn = sumT(batchTrx.filter(t => t.type === 'IN' && t.timestamp >= startRange && t.timestamp <= endRange), k);
+      const dayOut = sumT(batchTrx.filter(t => t.type === 'OUT' && t.timestamp >= startRange && t.timestamp <= endRange), k);
 
-      return opening > 0 || dayIn > 0 || dayOut > 0;
+      return Math.abs(opening) > 0.01 || dayIn > 0 || dayOut > 0;
     });
+  };
+
+  const getRowTableBreakdown = (rowName: string, isWIPRow: boolean = false) => {
+    const activeBatches = getRowBatches(rowName, isWIPRow);
+
+    let opening = 0;
+    let totalIn = 0;
+    let totalOut = 0;
+    let endingStock = 0;
+    const categorizedInMap: Record<string, number> = {};
+    const categorizedOutMap: Record<string, number> = {};
+
+    activeBatches.forEach(batch => {
+      const batchTbl = getBatchTableBreakdown(batch);
+      opening += batchTbl.opening;
+      totalIn += batchTbl.totalIn;
+      totalOut += batchTbl.totalOut;
+      endingStock += batchTbl.endingStock;
+
+      for (const [cat, val] of Object.entries(batchTbl.categorizedInMap)) {
+        categorizedInMap[cat] = (categorizedInMap[cat] || 0) + val;
+      }
+      for (const [cat, val] of Object.entries(batchTbl.categorizedOutMap)) {
+        categorizedOutMap[cat] = (categorizedOutMap[cat] || 0) + val;
+      }
+    });
+
+    return {
+      opening,
+      categorizedInMap,
+      otherIn: 0,
+      totalIn,
+      categorizedOutMap,
+      otherOut: 0,
+      totalOut,
+      endingStock
+    };
   };
 
   const filteredData = reportData.filter(row =>
