@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { ChillerItem, OutflowDestination, InflowSource, User } from '../types';
+import { ChillerItem, OutflowDestination, InflowSource, User, ItemMaster } from '../types';
 import { OUTFLOW_DESTINATIONS, INFLOW_SOURCES } from '../constants';
 import { formatNumber } from '@/utils';
 import {
@@ -18,9 +18,15 @@ import {
   ShieldAlert,
   ShieldCheck,
   XCircle,
-  Package
+  Package,
+  Edit2,
+  Trash2,
+  Save,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import CalculatorPopup from './CalculatorPopup';
+import { supabase } from '../lib/supabase';
 
 interface InventoryListProps {
   user: User | null;
@@ -29,9 +35,10 @@ interface InventoryListProps {
   onBatchOut: (ids: string[], destination: OutflowDestination) => void;
   onQCApprove: (id: string) => void;
   onQCReject: (id: string) => void;
+  onRefresh?: () => void;
 }
 
-const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBatchOut, onQCApprove, onQCReject }) => {
+const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBatchOut, onQCApprove, onQCReject, onRefresh }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
@@ -43,6 +50,153 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
   const [outPcs, setOutPcs] = useState<number>(0);
   const [outKgs, setOutKgs] = useState<number>(0);
   const [activeCalculator, setActiveCalculator] = useState<'pcs' | 'kgs' | null>(null);
+
+  // Superadmin Edit/Delete states
+  const [editingBatch, setEditingBatch] = useState<ChillerItem | null>(null);
+  const [editingPcs, setEditingPcs] = useState<number>(0);
+  const [editingKgs, setEditingKgs] = useState<number>(0);
+  const [editingProductionDate, setEditingProductionDate] = useState<string>('');
+  const [editingSlaughteringDate, setEditingSlaughteringDate] = useState<string>('');
+  const [editingSource, setEditingSource] = useState<string>('');
+  const [editingAllocation, setEditingAllocation] = useState<string>('');
+  const [editingIsWIP, setEditingIsWIP] = useState<boolean>(false);
+  const [editingStatus, setEditingStatus] = useState<string>('');
+  const [editingItemsId, setEditingItemsId] = useState<string>('');
+
+  const [deletingBatch, setDeletingBatch] = useState<ChillerItem | null>(null);
+  const [isMutating, setIsMutating] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Master items list
+  const [itemsList, setItemsList] = useState<ItemMaster[]>([]);
+
+  useEffect(() => {
+    const fetchMasterItems = async () => {
+      const { data, error } = await supabase
+        .from('items')
+        .select('*')
+        .eq('is_active', true)
+        .order('code', { ascending: true });
+      if (!error && data) {
+        setItemsList(data);
+      }
+    };
+    fetchMasterItems();
+  }, []);
+
+  const isSuperAdmin = user?.role?.toUpperCase() === 'SUPERADMIN';
+
+  const handleEditBatchClick = (batch: ChillerItem) => {
+    setEditingBatch(batch);
+    setEditingPcs(batch.pcs);
+    setEditingKgs(batch.kgs);
+    setEditingProductionDate(batch.productionDate);
+    setEditingSlaughteringDate(batch.slaughteringDate);
+    setEditingSource(batch.source);
+    setEditingAllocation(batch.allocation);
+    setEditingIsWIP(!!batch.isWIP);
+    setEditingItemsId(batch.itemsId);
+
+    // Status can be: 'IN' ('IN_CHILLER' in UI), 'OUT' ('OUT_CHILLER'), or 'PENDING_QC'
+    const dbStatus = batch.status === 'OUT_CHILLER' ? 'OUT' :
+      batch.status === 'PENDING_QC' ? 'PENDING' : 'IN';
+    setEditingStatus(dbStatus);
+    setError(null);
+  };
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingBatch) return;
+
+    setIsMutating(true);
+    setError(null);
+    try {
+      const selectedItemObj = itemsList.find(it => it.id === editingItemsId);
+      const selectedItemCode = selectedItemObj?.code || 'N/A';
+
+      // 1. Update chiller_stock
+      const { error: stockErr } = await supabase
+        .from('chiller_stock')
+        .update({
+          items_id: editingItemsId,
+          quantity_pcs: editingPcs,
+          quantity_kgs: editingKgs,
+          production_date: editingProductionDate,
+          slaughtering_date: editingSlaughteringDate,
+          source: editingSource,
+          allocation: editingAllocation,
+          status_WIP: editingIsWIP,
+          status: editingStatus
+        })
+        .eq('batch_id', editingBatch.batchId);
+
+      if (stockErr) throw stockErr;
+
+      // 2. Also update related initial transaction or IN transactions if quantities/item modified
+      const { data: firstInTrx, error: trxFetchErr } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('batch_id', editingBatch.batchId)
+        .eq('transaction_type', 'in')
+        .limit(1);
+
+      if (!trxFetchErr && firstInTrx && firstInTrx.length > 0) {
+        await supabase
+          .from('transactions')
+          .update({
+            quantity_pcs: editingPcs,
+            quantity_kgs: editingKgs,
+            note: selectedItemCode
+          })
+          .eq('id', firstInTrx[0].id);
+      }
+
+      setEditingBatch(null);
+      if (onRefresh) onRefresh();
+    } catch (err: any) {
+      console.error("Failed to edit batch:", err);
+      setError(err?.message || String(err));
+    } finally {
+      setIsMutating(false);
+    }
+  };
+
+  const handleDeleteBatchClick = (batch: ChillerItem) => {
+    setDeletingBatch(batch);
+    setError(null);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deletingBatch) return;
+
+    setIsMutating(true);
+    setError(null);
+    try {
+      // 1. Delete transactions related to this batch
+      const { error: trxDelErr } = await supabase
+        .from('transactions')
+        .delete()
+        .eq('batch_id', deletingBatch.batchId);
+
+      if (trxDelErr) throw trxDelErr;
+
+      // 2. Delete chiller_stock entry itself
+      const { error: stockDelErr } = await supabase
+        .from('chiller_stock')
+        .delete()
+        .eq('batch_id', deletingBatch.batchId);
+
+      if (stockDelErr) throw stockDelErr;
+
+      setDeletingBatch(null);
+      if (onRefresh) onRefresh();
+    } catch (err: any) {
+      console.error("Failed to delete batch:", err);
+      setError(err?.message || String(err));
+    } finally {
+      setIsMutating(false);
+    }
+  };
 
   const [filterSource, setFilterSource] = useState<InflowSource | 'ALL'>('ALL');
   const [filterAllocation, setFilterAllocation] = useState<InflowSource | 'ALL'>('ALL');
@@ -239,7 +393,27 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
                     <span className="bg-blue-50 text-blue-600 text-[7px] font-black uppercase px-1.5 py-0.5 rounded border border-blue-100">A: {item.allocation}</span>
                     {item.isWIP && <span className="bg-amber-100 text-amber-700 text-[7px] font-black px-1.5 py-0.5 rounded">WIP</span>}
                   </div>
-                  <span className="text-[7px] font-bold text-gray-300 uppercase tracking-tighter">{item.batchId}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[7.5px] font-bold text-gray-400 uppercase tracking-tighter mr-1">{item.batchId}</span>
+                    {isSuperAdmin && (
+                      <div className="flex items-center gap-1 print:hidden">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleEditBatchClick(item); }}
+                          className="p-1 px-1.5 bg-gray-50 text-blue-600 hover:bg-blue-100 rounded-lg border border-blue-100 transition-colors cursor-pointer"
+                          title="Edit Batch"
+                        >
+                          <Edit2 size={10} />
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleDeleteBatchClick(item); }}
+                          className="p-1 px-1.5 bg-gray-50 text-red-600 hover:bg-red-100 rounded-lg border border-red-100 transition-colors cursor-pointer"
+                          title="Hapus Batch"
+                        >
+                          <Trash2 size={10} />
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-4">
@@ -420,6 +594,216 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
           }}
           onClose={() => setActiveCalculator(null)}
         />
+      )}
+
+      {/* ================= EDIT MODAL (SUPERADMIN ONLY) ================= */}
+      {isSuperAdmin && editingBatch && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-white w-full max-w-lg rounded-2xl overflow-hidden shadow-2xl border border-gray-100 p-6 relative animate-in zoom-in-95 duration-200 select-text">
+            <button
+              onClick={() => setEditingBatch(null)}
+              className="absolute right-4 top-4 p-2 text-gray-400 hover:text-gray-600 rounded-lg transition-colors cursor-pointer outline-none"
+            >
+              <XCircle size={18} />
+            </button>
+
+            <div className="mb-4">
+              <h3 className="text-lg font-black text-gray-900 uppercase tracking-tight flex items-center gap-2">
+                <Edit2 className="text-blue-600 animate-pulse" size={18} />
+                Edit Batch Chiller Stock
+              </h3>
+              <p className="text-xs text-gray-400 font-bold uppercase tracking-wider mt-0.5">
+                BATCH ID: <span className="text-blue-600 font-black">{editingBatch.batchId}</span>
+              </p>
+            </div>
+
+            <form onSubmit={handleSaveEdit} className="space-y-4 font-sans">
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Pilih Item (Produk)</label>
+                <select
+                  className="w-full px-4 py-2.5 bg-gray-50 border border-transparent rounded-xl focus:bg-white focus:border-red-600 outline-none font-bold text-xs uppercase text-gray-800"
+                  value={editingItemsId}
+                  onChange={e => setEditingItemsId(e.target.value)}
+                  required
+                >
+                  <option value="">-- PILIH ITEM --</option>
+                  {itemsList.map(it => (
+                    <option key={it.id} value={it.id}>
+                      {it.code} - {it.description}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Pcs (Kuantitas)</label>
+                  <input
+                    type="number"
+                    className="w-full px-4 py-2.5 bg-gray-50 border border-transparent rounded-xl focus:bg-white focus:border-red-600 outline-none font-bold text-xs uppercase"
+                    value={editingPcs}
+                    onChange={e => setEditingPcs(parseInt(e.target.value) || 0)}
+                    required
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Kgs (Berat)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    className="w-full px-4 py-2.5 bg-gray-50 border border-transparent rounded-xl focus:bg-white focus:border-red-600 outline-none font-bold text-xs uppercase"
+                    value={editingKgs}
+                    onChange={e => setEditingKgs(parseFloat(e.target.value) || 0)}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Tanggal Produksi</label>
+                  <input
+                    type="date"
+                    className="w-full px-4 py-2.5 bg-gray-50 border border-transparent rounded-xl focus:bg-white focus:border-red-600 outline-none font-bold text-xs uppercase text-gray-700"
+                    value={editingProductionDate}
+                    onChange={e => setEditingProductionDate(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Tanggal Potong</label>
+                  <input
+                    type="date"
+                    className="w-full px-4 py-2.5 bg-gray-50 border border-transparent rounded-xl focus:bg-white focus:border-red-600 outline-none font-bold text-xs uppercase text-gray-700"
+                    value={editingSlaughteringDate}
+                    onChange={e => setEditingSlaughteringDate(e.target.value)}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Sumber (Source)</label>
+                  <input
+                    type="text"
+                    className="w-full px-4 py-2.5 bg-gray-50 border border-transparent rounded-xl focus:bg-white focus:border-red-600 outline-none font-bold text-xs uppercase"
+                    value={editingSource}
+                    onChange={e => setEditingSource(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Alokasi (Allocation)</label>
+                  <input
+                    type="text"
+                    className="w-full px-4 py-2.5 bg-gray-50 border border-transparent rounded-xl focus:bg-white focus:border-red-600 outline-none font-bold text-xs uppercase"
+                    value={editingAllocation}
+                    onChange={e => setEditingAllocation(e.target.value)}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1 flex flex-col justify-end pb-2 pl-2">
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      className="w-4 h-4 text-red-600 border-gray-300 rounded focus:ring-red-500 cursor-pointer"
+                      checked={editingIsWIP}
+                      onChange={e => setEditingIsWIP(e.target.checked)}
+                    />
+                    <span className="text-[10px] font-black text-gray-600 uppercase tracking-tight">Status WIP</span>
+                  </label>
+                </div>
+              </div>
+
+              {error && (
+                <div className="bg-red-50 text-red-600 p-3 rounded-xl text-[10px] font-bold uppercase flex items-center gap-1.5 border border-red-100">
+                  <AlertTriangle size={14} /> {error}
+                </div>
+              )}
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingBatch(null)}
+                  disabled={isMutating}
+                  className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-600 py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer"
+                >
+                  BATAL
+                </button>
+                <button
+                  type="submit"
+                  disabled={isMutating}
+                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 shadow-lg shadow-blue-100 cursor-pointer"
+                >
+                  {isMutating ? (
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                  ) : (
+                    <>
+                      <Save size={14} /> SIMPAN PERUBAHAN
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ================= DELETE CONFIRMATION MODAL (SUPERADMIN ONLY) ================= */}
+      {isSuperAdmin && deletingBatch && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-white w-full max-w-md rounded-2xl overflow-hidden shadow-2xl border border-gray-100 p-6 relative animate-in zoom-in-95 duration-200 font-sans">
+            <div className="text-center space-y-4">
+              <div className="w-12 h-12 bg-red-50 text-red-600 rounded-full flex items-center justify-center mx-auto mb-2 border border-red-100">
+                <Trash2 size={24} className="animate-bounce" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-gray-900 uppercase tracking-tight">Hapus Stock Batch?</h3>
+                <p className="text-xs text-gray-500 mt-2 font-semibold">
+                  Apakah Anda yakin ingin menghapus batch <span className="text-red-600 font-extrabold">{deletingBatch.batchId}</span> ({deletingBatch.itemCode})?
+                </p>
+                <p className="text-[10px] text-amber-600 bg-amber-50 p-2.5 rounded-xl border border-amber-100 mt-3 font-bold uppercase tracking-tight leading-normal">
+                  <AlertTriangle size={12} className="inline mr-1" /> Penting: Tindakan ini juga akan menghapus seluruh catatan transaksi terkait dari database untuk menjaga integritas stok harian.
+                </p>
+              </div>
+
+              {error && (
+                <div className="bg-red-50 text-red-600 p-3 rounded-xl text-[10px] font-bold uppercase flex items-center justify-center gap-1.5 border border-red-100">
+                  <AlertTriangle size={14} /> {error}
+                </div>
+              )}
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setDeletingBatch(null)}
+                  disabled={isMutating}
+                  className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-600 py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer"
+                >
+                  BATAL
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmDelete}
+                  disabled={isMutating}
+                  className="flex-1 bg-red-600 hover:bg-red-700 text-white py-2.5 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 shadow-lg shadow-red-100 cursor-pointer"
+                >
+                  {isMutating ? (
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                  ) : (
+                    <>
+                      HAPUS SEKARANG
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

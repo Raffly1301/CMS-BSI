@@ -1,6 +1,6 @@
 
-import React, { useState, useMemo, useRef } from 'react';
-import { ChillerItem, Transaction } from '../types';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { ChillerItem, Transaction, User, ItemMaster } from '../types';
 import { formatNumber } from '@/utils';
 import {
   Calendar,
@@ -8,12 +8,23 @@ import {
   Table as TableIcon,
   Info,
   Search,
-  Hash
+  Hash,
+  ChevronDown,
+  ChevronUp,
+  Edit2,
+  Trash2,
+  Save,
+  XCircle,
+  AlertTriangle,
+  RotateCcw
 } from 'lucide-react';
+import { supabase } from '../lib/supabase';
 
 interface DailyStockReportProps {
   items: ChillerItem[];
   transactions: Transaction[];
+  user?: User | null;
+  onRefresh?: () => void;
 }
 
 // Access global libraries from index.html
@@ -50,7 +61,7 @@ interface StockRow {
   isWIPGroup?: boolean;
 }
 
-const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions }) => {
+const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions, user, onRefresh }) => {
   const [startDate, setStartDate] = useState<string>(
     new Date().toISOString().split('T')[0]
   );
@@ -61,6 +72,160 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
   const [searchTerm, setSearchTerm] = useState('');
   const [showDetail, setShowDetail] = useState<boolean>(false);
   const reportRef = useRef<HTMLDivElement>(null);
+
+  // Row expand toggle state
+  const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
+
+  // Superadmin Edit/Delete states
+  const [editingBatch, setEditingBatch] = useState<ChillerItem | null>(null);
+  const [editingPcs, setEditingPcs] = useState<number>(0);
+  const [editingKgs, setEditingKgs] = useState<number>(0);
+  const [editingProductionDate, setEditingProductionDate] = useState<string>('');
+  const [editingSlaughteringDate, setEditingSlaughteringDate] = useState<string>('');
+  const [editingSource, setEditingSource] = useState<string>('');
+  const [editingAllocation, setEditingAllocation] = useState<string>('');
+  const [editingIsWIP, setEditingIsWIP] = useState<boolean>(false);
+  const [editingStatus, setEditingStatus] = useState<string>('');
+  const [editingItemsId, setEditingItemsId] = useState<string>('');
+
+  const [deletingBatch, setDeletingBatch] = useState<ChillerItem | null>(null);
+  const [isMutating, setIsMutating] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Master items list
+  const [itemsList, setItemsList] = useState<ItemMaster[]>([]);
+
+  useEffect(() => {
+    const fetchMasterItems = async () => {
+      const { data, error } = await supabase
+        .from('items')
+        .select('*')
+        .eq('is_active', true)
+        .order('code', { ascending: true });
+      if (!error && data) {
+        setItemsList(data);
+      }
+    };
+    fetchMasterItems();
+  }, []);
+
+  const isSuperAdmin = user?.role?.toUpperCase() === 'SUPERADMIN';
+
+  const toggleRowExpanded = (rowName: string) => {
+    setExpandedRows(prev => ({ ...prev, [rowName]: !prev[rowName] }));
+  };
+
+  const handleEditBatchClick = (batch: ChillerItem) => {
+    setEditingBatch(batch);
+    setEditingPcs(batch.pcs);
+    setEditingKgs(batch.kgs);
+    setEditingProductionDate(batch.productionDate);
+    setEditingSlaughteringDate(batch.slaughteringDate);
+    setEditingSource(batch.source);
+    setEditingAllocation(batch.allocation);
+    setEditingIsWIP(!!batch.isWIP);
+    setEditingItemsId(batch.itemsId);
+
+    // Status can be: 'IN' ('IN_CHILLER' in UI), 'OUT' ('OUT_CHILLER'), or 'PENDING_QC'
+    const dbStatus = batch.status === 'OUT_CHILLER' ? 'OUT' :
+      batch.status === 'PENDING_QC' ? 'PENDING' : 'IN';
+    setEditingStatus(dbStatus);
+    setError(null);
+  };
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingBatch) return;
+
+    setIsMutating(true);
+    setError(null);
+    try {
+      const selectedItemObj = itemsList.find(it => it.id === editingItemsId);
+      const selectedItemCode = selectedItemObj?.code || 'N/A';
+
+      // 1. Update chiller_stock
+      const { error: stockErr } = await supabase
+        .from('chiller_stock')
+        .update({
+          items_id: editingItemsId,
+          quantity_pcs: editingPcs,
+          quantity_kgs: editingKgs,
+          production_date: editingProductionDate,
+          slaughtering_date: editingSlaughteringDate,
+          source: editingSource,
+          allocation: editingAllocation,
+          status_WIP: editingIsWIP,
+          status: editingStatus
+        })
+        .eq('batch_id', editingBatch.batchId);
+
+      if (stockErr) throw stockErr;
+
+      // 2. Also update related initial transaction or IN transactions if quantities/item modified
+      const { data: firstInTrx, error: trxFetchErr } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('batch_id', editingBatch.batchId)
+        .eq('transaction_type', 'in')
+        .limit(1);
+
+      if (!trxFetchErr && firstInTrx && firstInTrx.length > 0) {
+        await supabase
+          .from('transactions')
+          .update({
+            quantity_pcs: editingPcs,
+            quantity_kgs: editingKgs,
+            note: selectedItemCode
+          })
+          .eq('id', firstInTrx[0].id);
+      }
+
+      setEditingBatch(null);
+      if (onRefresh) onRefresh();
+    } catch (err: any) {
+      console.error("Failed to edit batch:", err);
+      setError(err?.message || String(err));
+    } finally {
+      setIsMutating(false);
+    }
+  };
+
+  const handleDeleteBatchClick = (batch: ChillerItem) => {
+    setDeletingBatch(batch);
+    setError(null);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deletingBatch) return;
+
+    setIsMutating(true);
+    setError(null);
+    try {
+      // 1. Delete transactions related to this batch
+      const { error: trxDelErr } = await supabase
+        .from('transactions')
+        .delete()
+        .eq('batch_id', deletingBatch.batchId);
+
+      if (trxDelErr) throw trxDelErr;
+
+      // 2. Delete chiller_stock entry itself
+      const { error: stockDelErr } = await supabase
+        .from('chiller_stock')
+        .delete()
+        .eq('batch_id', deletingBatch.batchId);
+
+      if (stockDelErr) throw stockDelErr;
+
+      setDeletingBatch(null);
+      if (onRefresh) onRefresh();
+    } catch (err: any) {
+      console.error("Failed to delete batch:", err);
+      setError(err?.message || String(err));
+    } finally {
+      setIsMutating(false);
+    }
+  };
 
   // Pre-group transactions by chillerId for faster performance (avoids O(N*T) loop)
   const transactionsByChillerId = useMemo(() => {
@@ -340,6 +505,29 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
     };
   };
 
+  const getRowBatches = (rowName: string, isWIPRow: boolean = false) => {
+    const startRange = new Date(startDate).setHours(0, 0, 0, 0);
+    const endRange = new Date(endDate).setHours(23, 59, 59, 999);
+
+    const groupItems = isWIPRow
+      ? items.filter(i => !!i.isWIP)
+      : items.filter(i => i.itemCode === rowName && !i.isWIP);
+
+    return groupItems.filter(i => {
+      const batchTrx = transactionsByChillerId[i.batchId] || [];
+      const sumT = (arr: Transaction[], key: 'kgs' | 'pcs') => arr.reduce((acc, curr) => acc + (curr[key] || 0), 0);
+
+      const beforeIn = sumT(batchTrx.filter(t => t.type === 'IN' && t.timestamp < startRange), 'kgs');
+      const beforeOut = sumT(batchTrx.filter(t => t.type === 'OUT' && t.timestamp < startRange), 'kgs');
+      const opening = beforeIn - beforeOut;
+
+      const dayIn = sumT(batchTrx.filter(t => t.type === 'IN' && t.timestamp >= startRange && t.timestamp <= endRange), 'kgs');
+      const dayOut = sumT(batchTrx.filter(t => t.type === 'OUT' && t.timestamp >= startRange && t.timestamp <= endRange), 'kgs');
+
+      return opening > 0 || dayIn > 0 || dayOut > 0;
+    });
+  };
+
   const filteredData = reportData.filter(row =>
     row.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
@@ -589,6 +777,9 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
                 {filteredData.map((row, idx) => {
                   const isWIPRow = row.isWIPGroup;
                   const tbl = getRowTableBreakdown(row.name, isWIPRow);
+                  const rowBatches = getRowBatches(row.name, isWIPRow);
+                  const hasBatches = rowBatches.length > 0;
+                  const isExpanded = !!expandedRows[row.name];
 
                   return (
                     <React.Fragment key={idx}>
@@ -596,8 +787,13 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
                         hover:bg-gray-50 transition-colors border-b border-gray-100
                         ${isWIPRow ? 'bg-amber-50/40 font-black' : ''}
                       `}>
-                        <td className="px-2 py-1.5">
+                        <td className="px-2 py-1.5 cursor-pointer select-none" onClick={() => hasBatches && toggleRowExpanded(row.name)}>
                           <div className="flex items-center gap-2">
+                            {hasBatches && (
+                              <span className="text-gray-400 hover:text-red-600 transition-colors mr-0.5 self-center">
+                                {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                              </span>
+                            )}
                             <div className={`w-1.5 h-6 rounded-full shrink-0 ${isWIPRow ? 'bg-amber-500' : 'bg-red-500'}`} />
                             <div className="leading-tight">
                               <span className={`text-[10px] font-black uppercase ${isWIPRow ? 'text-amber-800' : 'text-gray-900'}`}>
@@ -638,27 +834,30 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
                         </td>
                       </tr>
 
-                      {isWIPRow && wipBreakdown.map((batch, bIdx) => {
+                      {isExpanded && rowBatches.map((batch, bIdx) => {
                         const batchTbl = getBatchTableBreakdown(batch);
                         return (
-                          <tr key={`wip-batch-${bIdx}`} className="bg-amber-50/10 border-b border-gray-100 hover:bg-amber-50/20 transition-colors">
-                            <td className="px-2 py-1 pl-6">
-                              <div className="flex flex-col ml-3">
-                                <span className="text-[8.5px] font-black text-amber-800 uppercase flex items-center gap-1">
-                                  <Hash size={10} /> {batch.batchId}
-                                </span>
-                                <span className="text-[7.5px] font-bold text-gray-500 uppercase leading-none mt-0.5">
-                                  {batch.itemCode}
+                          <tr key={`${row.name}-batch-${bIdx}`} className="bg-gray-50/40 border-b border-gray-100/50 hover:bg-red-50/10 transition-colors">
+                            <td className="px-2 py-1 pl-8">
+                              <div className="flex flex-col ml-1">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[8.5px] font-black text-gray-800 uppercase flex items-center gap-0.5">
+                                    <Hash size={10} className="text-gray-400" /> {batch.batchId}
+                                  </span>
+                                  {batch.isWIP && <span className="bg-amber-100 text-amber-700 text-[6px] font-black px-1.5 py-0.2 rounded scale-90">WIP</span>}
+                                </div>
+                                <span className="text-[7.5px] font-bold text-gray-400 uppercase leading-none mt-0.5 ml-2.5">
+                                  {batch.itemCode} - {batch.itemName}
                                 </span>
                               </div>
                             </td>
-                            <td className="px-1.5 py-1 text-right font-mono text-[12px] text-black">
+                            <td className="px-1.5 py-1 text-right font-mono text-[12px] text-gray-600">
                               {batchTbl.opening > 0 ? formatNumber(batchTbl.opening, unit === 'KGS' ? 2 : 0) : '0'}
                             </td>
                             {showDetail && activeInCats.map(cat => {
                               const val = batchTbl.categorizedInMap[cat] || 0;
                               return (
-                                <td key={`batch-in-${cat}`} className="px-1.5 py-1 text-right font-mono text-[12px] text-black">
+                                <td key={`batch-in-${cat}`} className="px-1.5 py-1 text-right font-mono text-[12px] text-gray-500">
                                   {val > 0 ? formatNumber(val, unit === 'KGS' ? 2 : 0) : ''}
                                 </td>
                               );
@@ -670,7 +869,7 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
                             {showDetail && activeOutCats.map(cat => {
                               const val = batchTbl.categorizedOutMap[cat] || 0;
                               return (
-                                <td key={`batch-out-${cat}`} className="px-1.5 py-1 text-right font-mono text-[12px] text-black">
+                                <td key={`batch-out-${cat}`} className="px-1.5 py-1 text-right font-mono text-[12px] text-gray-500">
                                   {val > 0 ? formatNumber(val, unit === 'KGS' ? 2 : 0) : ''}
                                 </td>
                               );
@@ -679,8 +878,18 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
                               {batchTbl.totalOut > 0 ? formatNumber(batchTbl.totalOut, unit === 'KGS' ? 2 : 0) : '0'}
                             </td>
 
-                            <td className="px-2 py-1 text-right font-mono font-bold text-red-600 bg-red-50/5 text-[12px]">
-                              {formatNumber(batchTbl.endingStock, unit === 'KGS' ? 2 : 0)}
+                            <td className="px-2 py-1 text-right font-mono font-bold text-red-600 bg-red-50/5 text-[12px] relative group">
+                              <span className="mr-6">{formatNumber(batchTbl.endingStock, unit === 'KGS' ? 2 : 0)}</span>
+                              {isSuperAdmin && (
+                                <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity print:hidden">
+                                  <button onClick={() => handleEditBatchClick(batch)} className="p-1 bg-white text-blue-600 hover:bg-blue-50 rounded border border-blue-100 transition-colors shadow-sm cursor-pointer" title="Edit Batch">
+                                    <Edit2 size={11} />
+                                  </button>
+                                  <button onClick={() => handleDeleteBatchClick(batch)} className="p-1 bg-white text-red-600 hover:bg-red-50 rounded border border-red-100 transition-colors shadow-sm cursor-pointer" title="Hapus Batch">
+                                    <Trash2 size={11} />
+                                  </button>
+                                </div>
+                              )}
                             </td>
                           </tr>
                         );
@@ -760,6 +969,216 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
           </div>
         )}
       </div>
+
+      {/* ================= EDIT MODAL (SUPERADMIN ONLY) ================= */}
+      {isSuperAdmin && editingBatch && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-white w-full max-w-lg rounded-2xl overflow-hidden shadow-2xl border border-gray-100 p-6 relative animate-in zoom-in-95 duration-200">
+            <button
+              onClick={() => setEditingBatch(null)}
+              className="absolute right-4 top-4 p-2 text-gray-400 hover:text-gray-600 rounded-lg transition-colors cursor-pointer outline-none"
+            >
+              <XCircle size={18} />
+            </button>
+
+            <div className="mb-4">
+              <h3 className="text-lg font-black text-gray-900 uppercase tracking-tight flex items-center gap-2">
+                <Edit2 className="text-blue-600 animate-pulse" size={18} />
+                Edit Batch Chiller Stock
+              </h3>
+              <p className="text-xs text-gray-400 font-bold uppercase tracking-wider mt-0.5">
+                BATCH ID: <span className="text-blue-600 font-black">{editingBatch.batchId}</span>
+              </p>
+            </div>
+
+            <form onSubmit={handleSaveEdit} className="space-y-4">
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Pilih Item (Produk)</label>
+                <select
+                  className="w-full px-4 py-2.5 bg-gray-50 border border-transparent rounded-xl focus:bg-white focus:border-red-600 outline-none font-bold text-xs uppercase text-gray-800"
+                  value={editingItemsId}
+                  onChange={e => setEditingItemsId(e.target.value)}
+                  required
+                >
+                  <option value="">-- PILIH ITEM --</option>
+                  {itemsList.map(it => (
+                    <option key={it.id} value={it.id}>
+                      {it.code} - {it.description}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Pcs (Kuantitas)</label>
+                  <input
+                    type="number"
+                    className="w-full px-4 py-2.5 bg-gray-50 border border-transparent rounded-xl focus:bg-white focus:border-red-600 outline-none font-bold text-xs uppercase"
+                    value={editingPcs}
+                    onChange={e => setEditingPcs(parseInt(e.target.value) || 0)}
+                    required
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Kgs (Berat)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    className="w-full px-4 py-2.5 bg-gray-50 border border-transparent rounded-xl focus:bg-white focus:border-red-600 outline-none font-bold text-xs uppercase"
+                    value={editingKgs}
+                    onChange={e => setEditingKgs(parseFloat(e.target.value) || 0)}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Tanggal Produksi</label>
+                  <input
+                    type="date"
+                    className="w-full px-4 py-2.5 bg-gray-50 border border-transparent rounded-xl focus:bg-white focus:border-red-600 outline-none font-bold text-xs uppercase text-gray-700"
+                    value={editingProductionDate}
+                    onChange={e => setEditingProductionDate(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Tanggal Potong</label>
+                  <input
+                    type="date"
+                    className="w-full px-4 py-2.5 bg-gray-50 border border-transparent rounded-xl focus:bg-white focus:border-red-600 outline-none font-bold text-xs uppercase text-gray-700"
+                    value={editingSlaughteringDate}
+                    onChange={e => setEditingSlaughteringDate(e.target.value)}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Sumber (Source)</label>
+                  <input
+                    type="text"
+                    className="w-full px-4 py-2.5 bg-gray-50 border border-transparent rounded-xl focus:bg-white focus:border-red-600 outline-none font-bold text-xs uppercase"
+                    value={editingSource}
+                    onChange={e => setEditingSource(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Alokasi (Allocation)</label>
+                  <input
+                    type="text"
+                    className="w-full px-4 py-2.5 bg-gray-50 border border-transparent rounded-xl focus:bg-white focus:border-red-600 outline-none font-bold text-xs uppercase"
+                    value={editingAllocation}
+                    onChange={e => setEditingAllocation(e.target.value)}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1 flex flex-col justify-end pb-2 pl-2">
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      className="w-4 h-4 text-red-600 border-gray-300 rounded focus:ring-red-500 cursor-pointer"
+                      checked={editingIsWIP}
+                      onChange={e => setEditingIsWIP(e.target.checked)}
+                    />
+                    <span className="text-[10px] font-black text-gray-600 uppercase tracking-tight">Status WIP</span>
+                  </label>
+                </div>
+              </div>
+
+              {error && (
+                <div className="bg-red-50 text-red-600 p-3 rounded-xl text-[10px] font-bold uppercase flex items-center gap-1.5 border border-red-100">
+                  <AlertTriangle size={14} /> {error}
+                </div>
+              )}
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingBatch(null)}
+                  disabled={isMutating}
+                  className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-600 py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer"
+                >
+                  BATAL
+                </button>
+                <button
+                  type="submit"
+                  disabled={isMutating}
+                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 shadow-lg shadow-blue-100 cursor-pointer"
+                >
+                  {isMutating ? (
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                  ) : (
+                    <>
+                      <Save size={14} /> SIMPAN PERUBAHAN
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ================= DELETE CONFIRMATION MODAL (SUPERADMIN ONLY) ================= */}
+      {isSuperAdmin && deletingBatch && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-white w-full max-w-md rounded-2xl overflow-hidden shadow-2xl border border-gray-100 p-6 relative animate-in zoom-in-95 duration-200">
+            <div className="text-center space-y-4">
+              <div className="w-12 h-12 bg-red-50 text-red-600 rounded-full flex items-center justify-center mx-auto mb-2 border border-red-100">
+                <Trash2 size={24} className="animate-bounce" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-gray-900 uppercase tracking-tight">Hapus Stock Batch?</h3>
+                <p className="text-xs text-gray-500 mt-2 font-semibold">
+                  Apakah Anda yakin ingin menghapus batch <span className="text-red-600 font-extrabold">{deletingBatch.batchId}</span> ({deletingBatch.itemCode})?
+                </p>
+                <p className="text-[10px] text-amber-600 bg-amber-50 p-2.5 rounded-xl border border-amber-100 mt-3 font-bold uppercase tracking-tight leading-normal">
+                  <AlertTriangle size={12} className="inline mr-1" /> Penting: Tindakan ini juga akan menghapus seluruh catatan transaksi terkait dari database untuk menjaga integritas stok harian.
+                </p>
+              </div>
+
+              {error && (
+                <div className="bg-red-50 text-red-600 p-3 rounded-xl text-[10px] font-bold uppercase flex items-center justify-center gap-1.5 border border-red-100">
+                  <AlertTriangle size={14} /> {error}
+                </div>
+              )}
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setDeletingBatch(null)}
+                  disabled={isMutating}
+                  className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-600 py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer"
+                >
+                  BATAL
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmDelete}
+                  disabled={isMutating}
+                  className="flex-1 bg-red-600 hover:bg-red-700 text-white py-2.5 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 shadow-lg shadow-red-100 cursor-pointer"
+                >
+                  {isMutating ? (
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                  ) : (
+                    <>
+                      HAPUS SEKARANG
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
