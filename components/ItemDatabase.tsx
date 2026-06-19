@@ -44,7 +44,7 @@ const ItemDatabase: React.FC<ItemDatabaseProps> = ({ user }) => {
     try {
       const { data, error } = await supabase
         .from('items')
-        .select('*')
+        .select('id, code, description, category, is_active')
         .order('code', { ascending: true });
 
       if (error) throw error;

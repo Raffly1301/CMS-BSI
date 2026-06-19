@@ -91,7 +91,7 @@ const InflowForm: React.FC<InflowFormProps> = ({ onSubmitBatch }) => {
     try {
       const { data, error } = await supabase
         .from('items')
-        .select('*')
+        .select('id, code, description, is_active')
         .order('code', { ascending: true });
 
       if (error) {

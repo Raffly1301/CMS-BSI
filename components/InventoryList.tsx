@@ -74,7 +74,7 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
     const fetchMasterItems = async () => {
       const { data, error } = await supabase
         .from('items')
-        .select('*')
+        .select('id, code, description')
         .eq('is_active', true)
         .order('code', { ascending: true });
       if (!error && data) {

@@ -48,8 +48,8 @@ const App: React.FC = () => {
   const itemsCache = useRef<Record<string, { name: string, code: string }>>({});
   const usersCache = useRef<Record<string, string>>({});
 
-  // Helper: fetch ALL rows from a Supabase table using pagination (PostgREST caps per-request rows)
-  const fetchAllRows = useCallback(async (table: string, orderCol: string) => {
+  // Helper: fetch ALL rows from a Supabase table using pagination with specific column selections
+  const fetchAllRows = useCallback(async (table: string, orderCol: string, selectCols = '*') => {
     const PAGE_SIZE = 1000;
     let allData: any[] = [];
     let from = 0;
@@ -58,7 +58,7 @@ const App: React.FC = () => {
     while (keepGoing) {
       const { data, error } = await supabase
         .from(table)
-        .select('*')
+        .select(selectCols)
         .order(orderCol, { ascending: false })
         .range(from, from + PAGE_SIZE - 1);
 
@@ -90,8 +90,8 @@ const App: React.FC = () => {
       }
 
       const [stockData, trxData] = await Promise.all([
-        fetchAllRows('chiller_stock', 'created_at'),
-        fetchAllRows('transactions', 'transaction_time')
+        fetchAllRows('chiller_stock', 'created_at', 'id,batch_id,items_id,quantity_pcs,quantity_kgs,production_date,slaughtering_date,source,allocation,created_at,status,status_WIP'),
+        fetchAllRows('transactions', 'transaction_time', 'id,batch_id,note,quantity_pcs,quantity_kgs,transaction_type,destination,user_id,transaction_time')
       ]);
 
       const mappedTrx: Transaction[] = (trxData || []).map(item => ({
@@ -180,23 +180,42 @@ const App: React.FC = () => {
     }
   }, [fetchAllRows]);
 
+  const fetchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const debouncedFetchData = useCallback((silent = false) => {
+    if (fetchTimeoutRef.current) {
+      clearTimeout(fetchTimeoutRef.current);
+    }
+    fetchTimeoutRef.current = setTimeout(() => {
+      fetchData(silent);
+    }, 1200);
+  }, [fetchData]);
+
+  useEffect(() => {
+    return () => {
+      if (fetchTimeoutRef.current) {
+        clearTimeout(fetchTimeoutRef.current);
+      }
+    };
+  }, []);
+
   useEffect(() => {
     if (isAuthenticated) {
       fetchData();
       const channel = supabase.channel('bsi-realtime')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'chiller_stock' }, () => fetchData(true))
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, () => fetchData(true))
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'chiller_stock' }, () => debouncedFetchData(true))
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, () => debouncedFetchData(true))
         .subscribe();
       return () => { supabase.removeChannel(channel); };
     }
-  }, [isAuthenticated, fetchData]);
+  }, [isAuthenticated, fetchData, debouncedFetchData]);
 
   const updateVirtualStock = async (destination: string, itemsId: string, pcs: number, kgs: number, type: 'ADD' | 'SUBTRACT') => {
     try {
-      // Fetch all records for this destination to aggregate them into one "per section" record
+      // Fetch all records with specific columns to minimize payload
       const { data: records, error: fetchError } = await supabase
         .from('virtual_inventory')
-        .select('*')
+        .select('id,items_id,quantity_pcs,quantity_kgs,destination')
         .eq('destination', destination);
 
       if (fetchError) throw fetchError;

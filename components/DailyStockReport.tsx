@@ -99,7 +99,7 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
     const fetchMasterItems = async () => {
       const { data, error } = await supabase
         .from('items')
-        .select('*')
+        .select('id, code, description')
         .eq('is_active', true)
         .order('code', { ascending: true });
       if (!error && data) {
