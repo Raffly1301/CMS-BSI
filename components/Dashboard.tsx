@@ -371,22 +371,22 @@ const Dashboard: React.FC<DashboardProps> = ({ items, transactions, onNavigate }
       )}
 
       {/* Header and Filter Selector */}
-      <div className="bg-white p-5 md:p-6 rounded-3xl border border-gray-100 shadow-sm space-y-4">
-        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
+      <div className="bg-white p-3.5 md:p-6 rounded-2xl md:rounded-3xl border border-gray-100 shadow-sm space-y-3 md:space-y-4">
+        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 md:gap-4">
           <div>
-            <span className="text-xs font-semibold text-red-600 bg-red-50 px-2.5 py-1 rounded-full uppercase tracking-wider">Layanan Real-time</span>
-            <h2 id="dashboard-title" className="text-2xl md:text-3xl font-black text-gray-900 tracking-tight mt-1.5">
+            <span className="text-[10px] md:text-xs font-semibold text-red-600 bg-red-50 px-2.5 py-1 rounded-full uppercase tracking-wider">Layanan Real-time</span>
+            <h2 id="dashboard-title" className="text-xl md:text-3xl font-black text-gray-900 tracking-tight mt-1">
               Dashboard Ringkasan Chiller
             </h2>
-            <p className="text-xs text-gray-400 mt-1">Gunakan saringan di bawah untuk menyaring data pergerakan barang secara dinamis.</p>
+            <p className="text-[11px] md:text-xs text-gray-400 mt-1">Gunakan saringan di bawah untuk menyaring data pergerakan barang secara dinamis.</p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="bg-gray-100 p-1 rounded-2xl flex flex-wrap gap-1" data-html2canvas-ignore="true">
+          <div className="flex flex-wrap items-center gap-2 md:gap-3">
+            <div className="bg-gray-100 p-1 rounded-xl md:rounded-2xl flex flex-wrap gap-1" data-html2canvas-ignore="true">
               <button
                 type="button"
                 onClick={() => setFilterPeriod('TODAY')}
-                className={`px-4 py-2 text-xs md:text-sm font-bold rounded-xl transition-all ${filterPeriod === 'TODAY'
+                className={`px-2.5 md:px-4 py-1.5 md:py-2 text-[11px] md:text-sm font-bold rounded-lg md:rounded-xl transition-all ${filterPeriod === 'TODAY'
                     ? 'bg-red-600 text-white shadow-sm'
                     : 'text-gray-600 hover:bg-gray-200'
                   }`}
@@ -396,7 +396,7 @@ const Dashboard: React.FC<DashboardProps> = ({ items, transactions, onNavigate }
               <button
                 type="button"
                 onClick={() => setFilterPeriod('SINGLE_DATE')}
-                className={`px-4 py-2 text-xs md:text-sm font-bold rounded-xl transition-all ${filterPeriod === 'SINGLE_DATE'
+                className={`px-2.5 md:px-4 py-1.5 md:py-2 text-[11px] md:text-sm font-bold rounded-lg md:rounded-xl transition-all ${filterPeriod === 'SINGLE_DATE'
                     ? 'bg-red-600 text-white shadow-sm'
                     : 'text-gray-600 hover:bg-gray-200'
                   }`}
@@ -406,7 +406,7 @@ const Dashboard: React.FC<DashboardProps> = ({ items, transactions, onNavigate }
               <button
                 type="button"
                 onClick={() => setFilterPeriod('RANGE')}
-                className={`px-4 py-2 text-xs md:text-sm font-bold rounded-xl transition-all ${filterPeriod === 'RANGE'
+                className={`px-2.5 md:px-4 py-1.5 md:py-2 text-[11px] md:text-sm font-bold rounded-lg md:rounded-xl transition-all ${filterPeriod === 'RANGE'
                     ? 'bg-red-600 text-white shadow-sm'
                     : 'text-gray-600 hover:bg-gray-200'
                   }`}
@@ -416,7 +416,7 @@ const Dashboard: React.FC<DashboardProps> = ({ items, transactions, onNavigate }
               <button
                 type="button"
                 onClick={() => setFilterPeriod('GLOBAL')}
-                className={`px-4 py-2 text-xs md:text-sm font-bold rounded-xl transition-all ${filterPeriod === 'GLOBAL'
+                className={`px-2.5 md:px-4 py-1.5 md:py-2 text-[11px] md:text-sm font-bold rounded-lg md:rounded-xl transition-all ${filterPeriod === 'GLOBAL'
                     ? 'bg-red-600 text-white shadow-sm'
                     : 'text-gray-600 hover:bg-gray-200'
                   }`}
@@ -428,10 +428,10 @@ const Dashboard: React.FC<DashboardProps> = ({ items, transactions, onNavigate }
             <button
               type="button"
               onClick={downloadPDF}
-              className="flex items-center gap-1.5 px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-md active:scale-95 cursor-pointer outline-none shrink-0"
+              className="flex items-center gap-1 px-3 md:px-4 py-2 md:py-2.5 bg-red-600 hover:bg-red-700 text-white font-black text-[10px] md:text-xs uppercase tracking-wider rounded-lg md:rounded-xl transition-all shadow-md active:scale-95 cursor-pointer outline-none shrink-0"
               title="Download PDF Dashboard"
             >
-              <FileText size={14} />
+              <FileText size={12} className="md:w-3.5 md:h-3.5" />
               <span>Download PDF</span>
             </button>
           </div>
@@ -484,48 +484,48 @@ const Dashboard: React.FC<DashboardProps> = ({ items, transactions, onNavigate }
       </div>
 
       {/* Visual Analytics Info strip */}
-      <div className="flex items-center justify-between px-1">
-        <div className="flex items-center gap-2 text-slate-700">
-          <Filter className="w-4 h-4 text-red-500" />
-          <span className="text-sm font-medium">Analisis Aktif:</span>
-          <span className="font-bold text-sm bg-red-50 text-red-700 px-3 py-0.5 rounded-full border border-red-100">
+      <div className="flex flex-wrap items-center justify-between px-1 gap-2">
+        <div className="flex items-center gap-1.5 text-slate-700 text-xs md:text-sm">
+          <Filter className="w-3.5 h-3.5 text-red-500" />
+          <span className="font-semibold">Saringan:</span>
+          <span className="font-extrabold bg-red-50 text-red-700 px-2.5 py-0.5 rounded-full border border-red-100 text-[11px] md:text-xs">
             {getFilterTagLabel()}
           </span>
         </div>
-        <div className="text-xs text-gray-400 italic">
-          Data diperbarui secara otomatis
+        <div className="text-[10px] md:text-xs text-gray-400 italic">
+          Autosync Aktif
         </div>
       </div>
 
       {/* Stats Board Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6">
 
         {/* Card 1: Chiller Stock Summary */}
         <div
           onClick={() => { setActiveDetailsModal('STOK_CHILLER'); setModalSearch(''); }}
-          className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100 hover:border-red-300 hover:shadow-md transition-all relative overflow-hidden group cursor-pointer active:scale-[0.98]"
+          className="bg-white rounded-2xl md:rounded-3xl p-3 md:p-6 shadow-sm border border-gray-100 hover:border-red-300 hover:shadow-md transition-all relative overflow-hidden group cursor-pointer active:scale-[0.98]"
         >
-          <div className="absolute top-0 right-0 w-32 h-32 bg-red-100 rounded-full mix-blend-multiply filter blur-2xl opacity-30 transform translate-x-8 -translate-y-8"></div>
-          <div className="flex items-center justify-between mb-4">
-            <span className="text-xs font-extrabold text-red-700 bg-red-50 px-2.5 py-1 rounded-full uppercase tracking-wider">
+          <div className="absolute top-0 right-0 w-24 h-24 md:w-32 md:h-32 bg-red-100 rounded-full mix-blend-multiply filter blur-2xl opacity-30 transform translate-x-8 -translate-y-8"></div>
+          <div className="flex items-center justify-between mb-2 md:mb-4">
+            <span className="text-[9px] md:text-xs font-extrabold text-red-700 bg-red-50 px-1.5 md:px-2.5 py-0.5 md:py-1 rounded-full uppercase tracking-wider">
               GUDANG CHILLER
             </span>
-            <div className="w-10 h-10 bg-red-50 text-red-600 rounded-xl flex items-center justify-center">
-              <Package className="w-5 h-5" />
+            <div className="w-8 h-8 md:w-10 md:h-10 bg-red-50 text-red-600 rounded-lg md:rounded-xl flex items-center justify-center">
+              <Package className="w-4 h-4 md:w-5 h-5" />
             </div>
           </div>
-          <p className="text-xs font-bold text-gray-400 uppercase tracking-widest leading-none">Stok Chiller Saat Ini</p>
-          <div className="mt-2.5">
-            <h3 className="text-3xl font-black text-gray-900 tracking-tight">
+          <p className="text-[10px] md:text-sm font-bold text-gray-400 uppercase tracking-widest leading-none">Stok Chiller</p>
+          <div className="mt-1.5 md:mt-2.5">
+            <h3 className="text-xl md:text-3xl font-black text-gray-900 tracking-tight">
               {formatNumber(totalStockWeight, 2)}
-              <span className="text-sm font-extrabold text-gray-400 ml-1">Kgs</span>
+              <span className="text-xs md:text-sm font-extrabold text-gray-400 ml-1">Kgs</span>
             </h3>
-            <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2 text-xs font-semibold text-gray-500">
-              <span className="bg-gray-100 px-2 py-0.5 rounded-md">{formatNumber(totalStockPcs, 0)} Pcs</span>
-              <span className="bg-slate-100 px-2 py-0.5 rounded-md">{inChiller.length} Batch</span>
+            <div className="flex flex-wrap gap-x-2 gap-y-1 mt-1 md:mt-2 text-[10px] md:text-xs font-semibold text-gray-500">
+              <span className="bg-gray-100 px-1.5 py-0.5 rounded-md">{formatNumber(totalStockPcs, 0)} Pcs</span>
+              <span className="bg-slate-100 px-1.5 py-0.5 rounded-md">{inChiller.length} Batch</span>
             </div>
           </div>
-          <div className="mt-4 pt-3.5 border-t border-gray-100 flex items-center justify-between text-xs text-gray-500">
+          <div className="hidden md:flex mt-4 pt-3.5 border-t border-gray-100 items-center justify-between text-xs text-gray-500">
             <div className="flex items-center gap-1">
               <Boxes className="w-3.5 h-3.5 text-red-500" />
               <span>Sediaan Item Unik:</span>
@@ -539,29 +539,29 @@ const Dashboard: React.FC<DashboardProps> = ({ items, transactions, onNavigate }
         {/* Card 2: Inflow Activities */}
         <div
           onClick={() => { setActiveDetailsModal('BARANG_MASUK'); setModalSearch(''); }}
-          className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100 hover:border-emerald-300 hover:shadow-md transition-all relative overflow-hidden group cursor-pointer active:scale-[0.98]"
+          className="bg-white rounded-2xl md:rounded-3xl p-3 md:p-6 shadow-sm border border-gray-100 hover:border-emerald-300 hover:shadow-md transition-all relative overflow-hidden group cursor-pointer active:scale-[0.98]"
         >
-          <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-100 rounded-full mix-blend-multiply filter blur-2xl opacity-30 transform translate-x-8 -translate-y-8"></div>
-          <div className="flex items-center justify-between mb-4">
-            <span className="text-xs font-extrabold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full uppercase tracking-wider">
+          <div className="absolute top-0 right-0 w-24 h-24 md:w-32 md:h-32 bg-emerald-100 rounded-full mix-blend-multiply filter blur-2xl opacity-30 transform translate-x-8 -translate-y-8"></div>
+          <div className="flex items-center justify-between mb-2 md:mb-4">
+            <span className="text-[9px] md:text-xs font-extrabold text-emerald-700 bg-emerald-50 px-1.5 md:px-2.5 py-0.5 md:py-1 rounded-full uppercase tracking-wider">
               BARANG MASUK
             </span>
-            <div className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center">
-              <ArrowDownToLine className="w-5 h-5" />
+            <div className="w-8 h-8 md:w-10 md:h-10 bg-emerald-50 text-emerald-600 rounded-lg md:rounded-xl flex items-center justify-center">
+              <ArrowDownToLine className="w-4 h-4 md:w-5 h-5" />
             </div>
           </div>
-          <p className="text-xs font-bold text-gray-400 uppercase tracking-widest leading-none">Total Inbound (Masuk)</p>
-          <div className="mt-2.5">
-            <h3 className="text-3xl font-black text-emerald-700 tracking-tight">
+          <p className="text-[10px] md:text-sm font-bold text-gray-400 uppercase tracking-widest leading-none">Total Inbound</p>
+          <div className="mt-1.5 md:mt-2.5">
+            <h3 className="text-xl md:text-3xl font-black text-emerald-700 tracking-tight">
               {formatNumber(loadingMetrics.inflowKgs, 2)}
-              <span className="text-sm font-extrabold text-gray-400 ml-1">Kgs</span>
+              <span className="text-xs md:text-sm font-extrabold text-gray-400 ml-1">Kgs</span>
             </h3>
-            <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2 text-xs font-semibold text-gray-500">
-              <span className="bg-emerald-50/50 text-emerald-800 px-2 py-0.5 rounded-md">{formatNumber(loadingMetrics.inflowPcs, 0)} Pcs</span>
-              <span className="bg-gray-100 px-2 py-0.5 rounded-md">Periode Ini</span>
+            <div className="flex flex-wrap gap-x-2 gap-y-1 mt-1 md:mt-2 text-[10px] md:text-xs font-semibold text-gray-500">
+              <span className="bg-emerald-50/50 text-emerald-800 px-1.5 py-0.5 rounded-md">{formatNumber(loadingMetrics.inflowPcs, 0)} Pcs</span>
+              <span className="bg-gray-100 px-1.5 py-0.5 rounded-md hidden sm:inline">Periode Ini</span>
             </div>
           </div>
-          <div className="mt-4 pt-3.5 border-t border-gray-100 flex items-center justify-between text-xs text-gray-500">
+          <div className="hidden md:flex mt-4 pt-3.5 border-t border-gray-100 items-center justify-between text-xs text-gray-500">
             <div className="flex items-center gap-1">
               <Tag className="w-3.5 h-3.5 text-emerald-500" />
               <span>Model Item Unik:</span>
@@ -575,29 +575,29 @@ const Dashboard: React.FC<DashboardProps> = ({ items, transactions, onNavigate }
         {/* Card 3: Outflow Activities */}
         <div
           onClick={() => { setActiveDetailsModal('BARANG_KELUAR'); setModalSearch(''); }}
-          className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100 hover:border-blue-300 hover:shadow-md transition-all relative overflow-hidden group cursor-pointer active:scale-[0.98]"
+          className="bg-white rounded-2xl md:rounded-3xl p-3 md:p-6 shadow-sm border border-gray-100 hover:border-blue-300 hover:shadow-md transition-all relative overflow-hidden group cursor-pointer active:scale-[0.98]"
         >
-          <div className="absolute top-0 right-0 w-32 h-32 bg-blue-100 rounded-full mix-blend-multiply filter blur-2xl opacity-30 transform translate-x-8 -translate-y-8"></div>
-          <div className="flex items-center justify-between mb-4">
-            <span className="text-xs font-extrabold text-blue-700 bg-blue-50 px-2.5 py-1 rounded-full uppercase tracking-wider">
+          <div className="absolute top-0 right-0 w-24 h-24 md:w-32 md:h-32 bg-blue-100 rounded-full mix-blend-multiply filter blur-2xl opacity-30 transform translate-x-8 -translate-y-8"></div>
+          <div className="flex items-center justify-between mb-2 md:mb-4">
+            <span className="text-[9px] md:text-xs font-extrabold text-blue-700 bg-blue-50 px-1.5 md:px-2.5 py-0.5 md:py-1 rounded-full uppercase tracking-wider">
               BARANG KELUAR
             </span>
-            <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center">
-              <ArrowUpFromLine className="w-5 h-5" />
+            <div className="w-8 h-8 md:w-10 md:h-10 bg-blue-50 text-blue-600 rounded-lg md:rounded-xl flex items-center justify-center">
+              <ArrowUpFromLine className="w-4 h-4 md:w-5 h-5" />
             </div>
           </div>
-          <p className="text-xs font-bold text-gray-400 uppercase tracking-widest leading-none">Total Outbound (Keluar)</p>
-          <div className="mt-2.5">
-            <h3 className="text-3xl font-black text-blue-700 tracking-tight">
+          <p className="text-[10px] md:text-sm font-bold text-gray-400 uppercase tracking-widest leading-none">Total Outbound</p>
+          <div className="mt-1.5 md:mt-2.5">
+            <h3 className="text-xl md:text-3xl font-black text-blue-700 tracking-tight">
               {formatNumber(loadingMetrics.outflowKgs, 2)}
-              <span className="text-sm font-extrabold text-gray-400 ml-1">Kgs</span>
+              <span className="text-xs md:text-sm font-extrabold text-gray-400 ml-1">Kgs</span>
             </h3>
-            <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2 text-xs font-semibold text-gray-500">
-              <span className="bg-blue-50/50 text-blue-800 px-2 py-0.5 rounded-md">{formatNumber(loadingMetrics.outflowPcs, 0)} Pcs</span>
-              <span className="bg-gray-100 px-2 py-0.5 rounded-md">Periode Ini</span>
+            <div className="flex flex-wrap gap-x-2 gap-y-1 mt-1 md:mt-2 text-[10px] md:text-xs font-semibold text-gray-500">
+              <span className="bg-blue-50/50 text-blue-800 px-1.5 py-0.5 rounded-md">{formatNumber(loadingMetrics.outflowPcs, 0)} Pcs</span>
+              <span className="bg-gray-100 px-1.5 py-0.5 rounded-md hidden sm:inline">Periode Ini</span>
             </div>
           </div>
-          <div className="mt-4 pt-3.5 border-t border-gray-100 flex items-center justify-between text-xs text-gray-500">
+          <div className="hidden md:flex mt-4 pt-3.5 border-t border-gray-100 items-center justify-between text-xs text-gray-500">
             <div className="flex items-center gap-1">
               <Tag className="w-3.5 h-3.5 text-blue-500" />
               <span>Model Item Unik:</span>
@@ -611,32 +611,31 @@ const Dashboard: React.FC<DashboardProps> = ({ items, transactions, onNavigate }
         {/* Card 4: Net Flow Difference */}
         <div
           onClick={() => { setActiveDetailsModal('NET_FLOW'); setModalSearch(''); }}
-          className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100 hover:border-violet-300 hover:shadow-md transition-all relative overflow-hidden group cursor-pointer active:scale-[0.98]"
+          className="bg-white rounded-2xl md:rounded-3xl p-3 md:p-6 shadow-sm border border-gray-100 hover:border-violet-300 hover:shadow-md transition-all relative overflow-hidden group cursor-pointer active:scale-[0.98]"
         >
-          <div className="absolute top-0 right-0 w-32 h-32 bg-violet-100 rounded-full mix-blend-multiply filter blur-2xl opacity-30 transform translate-x-8 -translate-y-8"></div>
-          <div className="flex items-center justify-between mb-4">
-            <span className="text-xs font-extrabold text-violet-700 bg-violet-50 px-2.5 py-1 rounded-full uppercase tracking-wider">
-              NET FLOW PERGERAKAN
+          <div className="absolute top-0 right-0 w-24 h-24 md:w-32 md:h-32 bg-violet-100 rounded-full mix-blend-multiply filter blur-2xl opacity-30 transform translate-x-8 -translate-y-8"></div>
+          <div className="flex items-center justify-between mb-2 md:mb-4">
+            <span className="text-[9px] md:text-xs font-extrabold text-violet-700 bg-violet-50 px-1.5 md:px-2.5 py-0.5 md:py-1 rounded-full uppercase tracking-wider">
+              NET FLOW
             </span>
-            <div className="w-10 h-10 bg-violet-50 text-violet-600 rounded-xl flex items-center justify-center">
-              <ArrowRightLeft className="w-5 h-5" />
+            <div className="w-8 h-8 md:w-10 md:h-10 bg-violet-50 text-violet-600 rounded-lg md:rounded-xl flex items-center justify-center">
+              <ArrowRightLeft className="w-4 h-4 md:w-5 h-5" />
             </div>
           </div>
-          <p className="text-xs font-bold text-gray-400 uppercase tracking-widest leading-none">Net Selisih Berjalan</p>
-          <div className="mt-2.5">
-            <h3 className={`text-3xl font-black tracking-tight ${netKgs >= 0 ? 'text-green-600' : 'text-amber-600'}`}>
+          <p className="text-[10px] md:text-sm font-bold text-gray-400 uppercase tracking-widest leading-none">Net Selisih</p>
+          <div className="mt-1.5 md:mt-2.5">
+            <h3 className={`text-xl md:text-3xl font-black tracking-tight ${netKgs >= 0 ? 'text-green-600' : 'text-amber-600'}`}>
               {netKgs >= 0 ? '+' : ''}
               {formatNumber(netKgs, 2)}
-              <span className="text-xs font-extrabold text-gray-400 ml-1">Kgs</span>
+              <span className="text-xs md:text-sm font-extrabold text-gray-400 ml-1">Kgs</span>
             </h3>
-            <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2 text-xs font-semibold text-gray-500">
-              <span className={`px-2 py-0.5 rounded-md ${netPcs >= 0 ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'}`}>
+            <div className="flex flex-wrap gap-x-2 gap-y-1 mt-1 md:mt-2 text-[10px] md:text-xs font-semibold text-gray-500">
+              <span className={`px-1.5 py-0.5 rounded-md ${netPcs >= 0 ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'}`}>
                 {netPcs >= 0 ? '+' : ''}{formatNumber(netPcs, 0)} Pcs
               </span>
-              <span className="bg-gray-100 px-2 py-0.5 rounded-md">Selisih Logistik</span>
             </div>
           </div>
-          <div className="mt-4 pt-3.5 border-t border-gray-100 flex items-center justify-between text-xs text-gray-500">
+          <div className="hidden md:flex mt-4 pt-3.5 border-t border-gray-100 items-center justify-between text-xs text-gray-500">
             <div className="flex items-center gap-1">
               <Activity className="w-3.5 h-3.5 text-violet-500" />
               <span>Status Operasional:</span>
@@ -651,20 +650,20 @@ const Dashboard: React.FC<DashboardProps> = ({ items, transactions, onNavigate }
       </div>
 
       {/* Main Charts & Item Table Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-8">
 
         {/* Dynamic Recharts Trend Graphic */}
-        <div className="lg:col-span-2 bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-gray-100">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-2">
+        <div className="lg:col-span-2 bg-white p-4 md:p-8 rounded-2xl md:rounded-3xl shadow-sm border border-gray-100">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 md:mb-6 gap-2">
             <div>
-              <h3 className="text-lg font-black text-gray-800 flex items-center gap-2">
-                <TrendingUp className="w-5 h-5 text-red-600" />
+              <h3 className="text-base md:text-lg font-black text-gray-800 flex items-center gap-2">
+                <TrendingUp className="w-4 h-4 md:w-5 h-5 text-red-600" />
                 Tren Aktivitas Pergerakan Barang
               </h3>
-              <p className="text-xs text-gray-400">Analisis volume masuk vs keluar chiller berdasarkan rentang filter (Kg)</p>
+              <p className="text-[10px] md:text-xs text-gray-400">Analisis volume masuk vs keluar chiller berdasarkan rentang filter (Kg)</p>
             </div>
           </div>
-          <div className="h-[320px] w-full">
+          <div className="h-[224px] sm:h-[320px] w-full">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={chartData} barGap={4}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
@@ -672,13 +671,13 @@ const Dashboard: React.FC<DashboardProps> = ({ items, transactions, onNavigate }
                   dataKey="name"
                   axisLine={false}
                   tickLine={false}
-                  tick={{ fill: '#64748b', fontSize: 11, fontWeight: 'medium' }}
+                  tick={{ fill: '#64748b', fontSize: 10, fontWeight: 'medium' }}
                   dy={8}
                 />
                 <YAxis
                   axisLine={false}
                   tickLine={false}
-                  tick={{ fill: '#64748b', fontSize: 11 }}
+                  tick={{ fill: '#64748b', fontSize: 10 }}
                   dx={-5}
                 />
                 <Tooltip
@@ -689,9 +688,9 @@ const Dashboard: React.FC<DashboardProps> = ({ items, transactions, onNavigate }
                     boxShadow: '0 10px 25px -5px rgba(0,0,0,0.05)',
                     backgroundColor: '#ffffff'
                   }}
-                  itemStyle={{ fontSize: '12px', fontWeight: 'bold' }}
+                  itemStyle={{ fontSize: '11px', fontWeight: 'bold' }}
                 />
-                <Legend iconType="circle" wrapperStyle={{ fontSize: '11px', fontWeight: 'bold', paddingTop: '15px' }} />
+                <Legend iconType="circle" wrapperStyle={{ fontSize: '10px', fontWeight: 'bold', paddingTop: '15px' }} />
                 <Bar dataKey="Masuk (Kg)" fill="#e11d48" radius={[4, 4, 0, 0]} name="Masuk (Kg)" />
                 <Bar dataKey="Keluar (Kg)" fill="#3b82f6" radius={[4, 4, 0, 0]} name="Keluar (Kg)" />
               </BarChart>
@@ -700,62 +699,62 @@ const Dashboard: React.FC<DashboardProps> = ({ items, transactions, onNavigate }
         </div>
 
         {/* Quick Operations and Inventory Contribution Info */}
-        <div className="space-y-6">
+        <div className="space-y-4 md:space-y-6">
 
           {/* Quick Actions Card */}
-          <div data-html2canvas-ignore="true" className="bg-gradient-to-br from-red-600 to-red-700 text-white p-6 rounded-3xl shadow-sm relative overflow-hidden">
+          <div data-html2canvas-ignore="true" className="bg-gradient-to-br from-red-600 to-red-700 text-white p-4 md:p-6 rounded-2xl md:rounded-3xl shadow-sm relative overflow-hidden">
             <div className="absolute right-0 bottom-0 translate-x-4 translate-y-4 text-white/5 pointer-events-none">
-              <ThermometerSnowflake className="w-40 h-40" />
+              <ThermometerSnowflake className="w-28 h-28 md:w-40 md:h-40" />
             </div>
-            <h3 className="text-lg font-black mb-1.5 flex items-center gap-2">
-              <AlertCircle className="w-5 h-5 text-red-100" />
+            <h3 className="text-base md:text-lg font-black mb-1 flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 md:w-5 h-5 text-red-100" />
               Aksi Cepat Logistik
             </h3>
-            <p className="text-xs text-white/80 mb-5">Pintasan navigasi untuk mengelola muat barang chiller.</p>
+            <p className="text-[11px] md:text-xs text-white/80 mb-4 md:mb-5">Pintasan navigasi untuk mengelola muat barang chiller.</p>
 
-            <div className="space-y-3">
+            <div className="space-y-2.5 md:space-y-3">
               <button
                 onClick={() => onNavigate('INFLOW')}
-                className="w-full flex items-center justify-between p-3.5 bg-white/10 hover:bg-white/20 text-white rounded-2xl group transition-all"
+                className="w-full flex items-center justify-between p-2.5 md:p-3.5 bg-white/10 hover:bg-white/20 text-white rounded-xl md:rounded-2xl group transition-all"
               >
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-white/20 rounded-xl">
-                    <ArrowDownToLine className="w-4 h-4 text-white" />
+                <div className="flex items-center gap-2.5 md:gap-3">
+                  <div className="p-1.5 md:p-2 bg-white/20 rounded-lg">
+                    <ArrowDownToLine className="w-3.5 h-3.5 md:w-4 h-4 text-white" />
                   </div>
-                  <span className="font-bold text-sm">Input Barang Baru</span>
+                  <span className="font-bold text-xs md:text-sm">Input Barang Baru</span>
                 </div>
-                <ChevronRight className="w-4 h-4 text-white/80 group-hover:translate-x-1 transition-transform" />
+                <ChevronRight className="w-3.5 h-3.5 md:w-4 h-4 text-white/80 group-hover:translate-x-1 transition-transform" />
               </button>
 
               <button
                 onClick={() => onNavigate('INVENTORY')}
-                className="w-full flex items-center justify-between p-3.5 bg-white/10 hover:bg-white/20 text-white rounded-2xl group transition-all"
+                className="w-full flex items-center justify-between p-2.5 md:p-3.5 bg-white/10 hover:bg-white/20 text-white rounded-xl md:rounded-2xl group transition-all"
               >
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-white/20 rounded-xl">
-                    <ThermometerSnowflake className="w-4 h-4 text-white" />
+                <div className="flex items-center gap-2.5 md:gap-3">
+                  <div className="p-1.5 md:p-2 bg-white/20 rounded-lg">
+                    <ThermometerSnowflake className="w-3.5 h-3.5 md:w-4 h-4 text-white" />
                   </div>
-                  <span className="font-bold text-sm">Cek Stok Chiller</span>
+                  <span className="font-bold text-xs md:text-sm">Cek Stok Chiller</span>
                 </div>
-                <ChevronRight className="w-4 h-4 text-white/80 group-hover:translate-x-1 transition-transform" />
+                <ChevronRight className="w-3.5 h-3.5 md:w-4 h-4 text-white/80 group-hover:translate-x-1 transition-transform" />
               </button>
             </div>
           </div>
 
           {/* Unique Items composition list inside the Chiller */}
-          <div className="bg-white p-5 rounded-3xl shadow-sm border border-gray-100 space-y-4">
+          <div className="bg-white p-4 md:p-5 rounded-2xl md:rounded-3xl shadow-sm border border-gray-100 space-y-3 md:space-y-4">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-sm font-black text-gray-800">Komposisi Sediaan Terbesar</h3>
-                <p className="text-[10px] text-gray-400">Total berat sediaan unik berurutan</p>
+                <h3 className="text-xs md:text-sm font-black text-gray-800">Komposisi Sediaan Terbesar</h3>
+                <p className="text-[9px] md:text-[10px] text-gray-400">Total berat sediaan unik berurutan</p>
               </div>
-              <span className="text-[10px] font-black text-gray-500 bg-gray-100 px-2 py-1 rounded">
+              <span className="text-[9px] md:text-[10px] font-black text-gray-500 bg-gray-100 px-1.5 md:px-2 py-0.5 md:py-1 rounded">
                 {stockBreakdownList.length} Item
               </span>
             </div>
 
             {stockBreakdownList.length === 0 ? (
-              <div className="p-4 text-center rounded-2xl bg-gray-50 text-gray-400 text-xs">
+              <div className="p-4 text-center rounded-xl md:rounded-2xl bg-gray-50 text-gray-400 text-xs">
                 Chiller dalam keadaan kosong.
               </div>
             ) : (
@@ -814,31 +813,31 @@ const Dashboard: React.FC<DashboardProps> = ({ items, transactions, onNavigate }
       </div>
 
       {/* Unique Table: Detailed Composition of Items inside Chiller currently */}
-      <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-6 space-y-4">
+      <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-4 md:p-6 space-y-3 md:space-y-4">
         <div>
-          <h3 className="text-lg font-black text-gray-800 flex items-center gap-2">
-            <Layers className="w-5 h-5 text-red-600" />
+          <h3 className="text-base md:text-lg font-black text-gray-800 flex items-center gap-2">
+            <Layers className="w-4 h-4 md:w-5 h-5 text-red-600" />
             Daftar Uraian Sediaan Item Unik (Real-time)
           </h3>
-          <p className="text-xs text-gray-400">Total berat sediaan dipecah berdasarkan kode unik material yang aktif di dalam chiller.</p>
+          <p className="text-[10px] md:text-xs text-gray-400">Total berat sediaan dipecah berdasarkan kode unik material yang aktif di dalam chiller.</p>
         </div>
 
-        <div className="overflow-x-auto rounded-2xl border border-gray-100">
-          <table className="w-full text-left text-sm border-collapse">
+        <div className="overflow-x-auto rounded-xl md:rounded-2xl border border-gray-100">
+          <table className="w-full text-left text-xs md:text-sm border-collapse">
             <thead>
-              <tr className="bg-slate-50 border-b border-light text-slate-500 font-extrabold text-xs">
-                <th className="p-3">Kode Item</th>
-                <th className="p-3">Nama Material / Deskripsi</th>
-                <th className="p-3 text-center">Jumlah Batch</th>
-                <th className="p-3 text-right">Total Qty (Pcs)</th>
-                <th className="p-3 text-right">Total Berat (Kgs)</th>
-                <th className="p-3 text-center">Kontribusi Stok</th>
+              <tr className="bg-slate-50 border-b border-light text-slate-500 font-extrabold text-[10px] md:text-xs uppercase">
+                <th className="p-2 md:p-3">Kode Item</th>
+                <th className="p-2 md:p-3">Nama Material / Deskripsi</th>
+                <th className="p-2 md:p-3 text-center hidden sm:table-cell">Jumlah Batch</th>
+                <th className="p-2 md:p-3 text-right">Total Qty (Pcs)</th>
+                <th className="p-2 md:p-3 text-right">Total Berat (Kgs)</th>
+                <th className="p-2 md:p-3 text-center hidden md:table-cell">Kontribusi Stok</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {stockBreakdownList.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="p-8 text-center text-gray-400 font-medium whitespace-nowrap">
+                  <td colSpan={6} className="p-6 md:p-8 text-center text-gray-400 font-medium whitespace-nowrap text-xs">
                     Tidak ada item tersisa di dalam chiller.
                   </td>
                 </tr>
@@ -846,13 +845,13 @@ const Dashboard: React.FC<DashboardProps> = ({ items, transactions, onNavigate }
                 stockBreakdownList.map((item) => {
                   const contributionPercent = totalStockWeight > 0 ? (item.kgs / totalStockWeight) * 100 : 0;
                   return (
-                    <tr key={item.code} className="hover:bg-slate-50/50 transition-colors">
-                      <td className="p-3 font-mono font-bold text-red-700">{item.code}</td>
-                      <td className="p-3 font-semibold text-gray-700">{item.name}</td>
-                      <td className="p-3 text-center font-bold text-gray-600 bg-gray-50/50">{item.batchCount}</td>
-                      <td className="p-3 text-right font-mono font-bold text-gray-900">{formatNumber(item.pcs, 0)}</td>
-                      <td className="p-3 text-right font-mono font-black text-gray-900">{formatNumber(item.kgs, 2)}</td>
-                      <td className="p-3 text-center">
+                    <tr key={item.code} className="hover:bg-slate-50/50 transition-colors text-[11px] md:text-xs">
+                      <td className="p-2 md:p-3 font-mono font-bold text-red-700">{item.code}</td>
+                      <td className="p-2 md:p-3 font-semibold text-gray-700 max-w-[120px] md:max-w-none truncate" title={item.name}>{item.name}</td>
+                      <td className="p-2 md:p-3 text-center font-bold text-gray-600 bg-gray-50/50 hidden sm:table-cell">{item.batchCount}</td>
+                      <td className="p-2 md:p-3 text-right font-mono font-bold text-gray-900">{formatNumber(item.pcs, 0)}</td>
+                      <td className="p-2 md:p-3 text-right font-mono font-black text-gray-900">{formatNumber(item.kgs, 2)}</td>
+                      <td className="p-2 md:p-3 text-center hidden md:table-cell">
                         <span className="inline-block px-2.5 py-1 bg-red-50 text-red-700 text-xs font-black rounded-lg border border-red-100">
                           {formatNumber(contributionPercent, 1)}%
                         </span>
