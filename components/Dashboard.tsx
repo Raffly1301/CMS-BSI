@@ -387,8 +387,8 @@ const Dashboard: React.FC<DashboardProps> = ({ items, transactions, onNavigate }
                 type="button"
                 onClick={() => setFilterPeriod('TODAY')}
                 className={`px-2.5 md:px-4 py-1.5 md:py-2 text-[11px] md:text-sm font-bold rounded-lg md:rounded-xl transition-all ${filterPeriod === 'TODAY'
-                    ? 'bg-red-600 text-white shadow-sm'
-                    : 'text-gray-600 hover:bg-gray-200'
+                  ? 'bg-red-600 text-white shadow-sm'
+                  : 'text-gray-600 hover:bg-gray-200'
                   }`}
               >
                 Hari Ini
@@ -397,8 +397,8 @@ const Dashboard: React.FC<DashboardProps> = ({ items, transactions, onNavigate }
                 type="button"
                 onClick={() => setFilterPeriod('SINGLE_DATE')}
                 className={`px-2.5 md:px-4 py-1.5 md:py-2 text-[11px] md:text-sm font-bold rounded-lg md:rounded-xl transition-all ${filterPeriod === 'SINGLE_DATE'
-                    ? 'bg-red-600 text-white shadow-sm'
-                    : 'text-gray-600 hover:bg-gray-200'
+                  ? 'bg-red-600 text-white shadow-sm'
+                  : 'text-gray-600 hover:bg-gray-200'
                   }`}
               >
                 Per Tanggal
@@ -407,8 +407,8 @@ const Dashboard: React.FC<DashboardProps> = ({ items, transactions, onNavigate }
                 type="button"
                 onClick={() => setFilterPeriod('RANGE')}
                 className={`px-2.5 md:px-4 py-1.5 md:py-2 text-[11px] md:text-sm font-bold rounded-lg md:rounded-xl transition-all ${filterPeriod === 'RANGE'
-                    ? 'bg-red-600 text-white shadow-sm'
-                    : 'text-gray-600 hover:bg-gray-200'
+                  ? 'bg-red-600 text-white shadow-sm'
+                  : 'text-gray-600 hover:bg-gray-200'
                   }`}
               >
                 Rentang
@@ -417,8 +417,8 @@ const Dashboard: React.FC<DashboardProps> = ({ items, transactions, onNavigate }
                 type="button"
                 onClick={() => setFilterPeriod('GLOBAL')}
                 className={`px-2.5 md:px-4 py-1.5 md:py-2 text-[11px] md:text-sm font-bold rounded-lg md:rounded-xl transition-all ${filterPeriod === 'GLOBAL'
-                    ? 'bg-red-600 text-white shadow-sm'
-                    : 'text-gray-600 hover:bg-gray-200'
+                  ? 'bg-red-600 text-white shadow-sm'
+                  : 'text-gray-600 hover:bg-gray-200'
                   }`}
               >
                 Semua Waktu
@@ -976,8 +976,8 @@ const Dashboard: React.FC<DashboardProps> = ({ items, transactions, onNavigate }
                       <td className="p-2 font-mono font-bold text-red-600 border-r border-slate-200">{t.chillerId}</td>
                       <td className="p-2 border-r border-slate-200">
                         <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase ${t.type === 'IN' ? 'bg-green-100 text-green-700' :
-                            t.type === 'OUT' ? 'bg-blue-100 text-blue-700' :
-                              'bg-orange-100 text-orange-700'
+                          t.type === 'OUT' ? 'bg-blue-100 text-blue-700' :
+                            'bg-orange-100 text-orange-700'
                           }`}>
                           {t.type} {t.destination ? `→ ${t.destination}` : ''}
                         </span>
@@ -1012,8 +1012,8 @@ const Dashboard: React.FC<DashboardProps> = ({ items, transactions, onNavigate }
             <div className="p-6 pb-4 border-b border-gray-100 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${activeDetailsModal === 'STOK_CHILLER' ? 'bg-red-50 text-red-600' :
-                    activeDetailsModal === 'BARANG_MASUK' ? 'bg-emerald-50 text-emerald-600' :
-                      activeDetailsModal === 'BARANG_KELUAR' ? 'bg-blue-50 text-blue-600' : 'bg-violet-50 text-violet-600'
+                  activeDetailsModal === 'BARANG_MASUK' ? 'bg-emerald-50 text-emerald-600' :
+                    activeDetailsModal === 'BARANG_KELUAR' ? 'bg-blue-50 text-blue-600' : 'bg-violet-50 text-violet-600'
                   }`}>
                   {activeDetailsModal === 'STOK_CHILLER' && <Package className="w-5 h-5" />}
                   {activeDetailsModal === 'BARANG_MASUK' && <ArrowDownToLine className="w-5 h-5" />}
@@ -1449,3 +1449,4 @@ const Dashboard: React.FC<DashboardProps> = ({ items, transactions, onNavigate }
 };
 
 export default Dashboard;
+
