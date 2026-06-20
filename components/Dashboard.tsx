@@ -350,7 +350,7 @@ const Dashboard: React.FC<DashboardProps> = ({ items, transactions, onNavigate }
             </div>
             <div className="text-right">
               <span className="text-[10px] font-black text-red-600 bg-red-50 px-2.5 py-1 rounded-full uppercase tracking-wider border border-red-100">
-                LAPORAN RINGKASAN DASHBOARD (EKSEKUTIF)
+                LAPORAN RINGKASAN DASHBOARD
               </span>
               <p className="text-[9px] text-gray-400 mt-2 font-medium">Tanggal Cetak: {new Date().toLocaleString('id-ID')}</p>
             </div>
@@ -376,7 +376,7 @@ const Dashboard: React.FC<DashboardProps> = ({ items, transactions, onNavigate }
           <div>
             <span className="text-[10px] md:text-xs font-semibold text-red-600 bg-red-50 px-2.5 py-1 rounded-full uppercase tracking-wider">Layanan Real-time</span>
             <h2 id="dashboard-title" className="text-xl md:text-3xl font-black text-gray-900 tracking-tight mt-1">
-              Dashboard Ringkasan Chiller
+              Dashboard
             </h2>
             <p className="text-[11px] md:text-xs text-gray-400 mt-1">Gunakan saringan di bawah untuk menyaring data pergerakan barang secara dinamis.</p>
           </div>
@@ -564,7 +564,7 @@ const Dashboard: React.FC<DashboardProps> = ({ items, transactions, onNavigate }
           <div className="hidden md:flex mt-4 pt-3.5 border-t border-gray-100 items-center justify-between text-xs text-gray-500">
             <div className="flex items-center gap-1">
               <Tag className="w-3.5 h-3.5 text-emerald-500" />
-              <span>Model Item Unik:</span>
+              <span>Item:</span>
             </div>
             <span className="font-extrabold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded text-xs">
               {loadingMetrics.inflowUniqueCount} Produk
@@ -600,7 +600,7 @@ const Dashboard: React.FC<DashboardProps> = ({ items, transactions, onNavigate }
           <div className="hidden md:flex mt-4 pt-3.5 border-t border-gray-100 items-center justify-between text-xs text-gray-500">
             <div className="flex items-center gap-1">
               <Tag className="w-3.5 h-3.5 text-blue-500" />
-              <span>Model Item Unik:</span>
+              <span>Item:</span>
             </div>
             <span className="font-extrabold text-blue-700 bg-blue-50 px-2 py-0.5 rounded text-xs">
               {loadingMetrics.outflowUniqueCount} Produk
@@ -1200,7 +1200,7 @@ const Dashboard: React.FC<DashboardProps> = ({ items, transactions, onNavigate }
                       <p className="text-xl font-black text-slate-800">{filteredInbound.length} <span className="text-xs font-bold text-gray-500">Kali</span></p>
                     </div>
                     <div className="space-y-1">
-                      <span className="text-[10px] uppercase tracking-wider font-extrabold text-gray-400">Model Item Masuk</span>
+                      <span className="text-[10px] uppercase tracking-wider font-extrabold text-gray-400">Item Masuk</span>
                       <p className="text-xl font-black text-slate-800">{loadingMetrics.inflowUniqueCount} <span className="text-xs font-bold text-gray-500">Produk</span></p>
                     </div>
                   </div>
@@ -1274,7 +1274,7 @@ const Dashboard: React.FC<DashboardProps> = ({ items, transactions, onNavigate }
                       <p className="text-xl font-black text-slate-800">{filteredOutbound.length} <span className="text-xs font-bold text-gray-500">Kali</span></p>
                     </div>
                     <div className="space-y-1">
-                      <span className="text-[10px] uppercase tracking-wider font-extrabold text-gray-400">Model Item Keluar</span>
+                      <span className="text-[10px] uppercase tracking-wider font-extrabold text-gray-400">Item Keluar</span>
                       <p className="text-xl font-black text-slate-800">{loadingMetrics.outflowUniqueCount} <span className="text-xs font-bold text-gray-500">Produk</span></p>
                     </div>
                   </div>
