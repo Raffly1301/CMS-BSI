@@ -350,7 +350,7 @@ const Dashboard: React.FC<DashboardProps> = ({ items, transactions, onNavigate }
             </div>
             <div className="text-right">
               <span className="text-[10px] font-black text-red-600 bg-red-50 px-2.5 py-1 rounded-full uppercase tracking-wider border border-red-100">
-                LAPORAN RINGKASAN DASHBOARD (EKSEKUTIF)
+                LAPORAN RINGKASAN DASHBOARD
               </span>
               <p className="text-[9px] text-gray-400 mt-2 font-medium">Tanggal Cetak: {new Date().toLocaleString('id-ID')}</p>
             </div>
@@ -376,7 +376,7 @@ const Dashboard: React.FC<DashboardProps> = ({ items, transactions, onNavigate }
           <div>
             <span className="text-[10px] md:text-xs font-semibold text-red-600 bg-red-50 px-2.5 py-1 rounded-full uppercase tracking-wider">Layanan Real-time</span>
             <h2 id="dashboard-title" className="text-xl md:text-3xl font-black text-gray-900 tracking-tight mt-1">
-              Dashboard Ringkasan Chiller
+              Dashboard
             </h2>
             <p className="text-[11px] md:text-xs text-gray-400 mt-1">Gunakan saringan di bawah untuk menyaring data pergerakan barang secara dinamis.</p>
           </div>
@@ -387,8 +387,8 @@ const Dashboard: React.FC<DashboardProps> = ({ items, transactions, onNavigate }
                 type="button"
                 onClick={() => setFilterPeriod('TODAY')}
                 className={`px-2.5 md:px-4 py-1.5 md:py-2 text-[11px] md:text-sm font-bold rounded-lg md:rounded-xl transition-all ${filterPeriod === 'TODAY'
-                    ? 'bg-red-600 text-white shadow-sm'
-                    : 'text-gray-600 hover:bg-gray-200'
+                  ? 'bg-red-600 text-white shadow-sm'
+                  : 'text-gray-600 hover:bg-gray-200'
                   }`}
               >
                 Hari Ini
@@ -397,8 +397,8 @@ const Dashboard: React.FC<DashboardProps> = ({ items, transactions, onNavigate }
                 type="button"
                 onClick={() => setFilterPeriod('SINGLE_DATE')}
                 className={`px-2.5 md:px-4 py-1.5 md:py-2 text-[11px] md:text-sm font-bold rounded-lg md:rounded-xl transition-all ${filterPeriod === 'SINGLE_DATE'
-                    ? 'bg-red-600 text-white shadow-sm'
-                    : 'text-gray-600 hover:bg-gray-200'
+                  ? 'bg-red-600 text-white shadow-sm'
+                  : 'text-gray-600 hover:bg-gray-200'
                   }`}
               >
                 Per Tanggal
@@ -407,8 +407,8 @@ const Dashboard: React.FC<DashboardProps> = ({ items, transactions, onNavigate }
                 type="button"
                 onClick={() => setFilterPeriod('RANGE')}
                 className={`px-2.5 md:px-4 py-1.5 md:py-2 text-[11px] md:text-sm font-bold rounded-lg md:rounded-xl transition-all ${filterPeriod === 'RANGE'
-                    ? 'bg-red-600 text-white shadow-sm'
-                    : 'text-gray-600 hover:bg-gray-200'
+                  ? 'bg-red-600 text-white shadow-sm'
+                  : 'text-gray-600 hover:bg-gray-200'
                   }`}
               >
                 Rentang
@@ -417,8 +417,8 @@ const Dashboard: React.FC<DashboardProps> = ({ items, transactions, onNavigate }
                 type="button"
                 onClick={() => setFilterPeriod('GLOBAL')}
                 className={`px-2.5 md:px-4 py-1.5 md:py-2 text-[11px] md:text-sm font-bold rounded-lg md:rounded-xl transition-all ${filterPeriod === 'GLOBAL'
-                    ? 'bg-red-600 text-white shadow-sm'
-                    : 'text-gray-600 hover:bg-gray-200'
+                  ? 'bg-red-600 text-white shadow-sm'
+                  : 'text-gray-600 hover:bg-gray-200'
                   }`}
               >
                 Semua Waktu
@@ -564,7 +564,7 @@ const Dashboard: React.FC<DashboardProps> = ({ items, transactions, onNavigate }
           <div className="hidden md:flex mt-4 pt-3.5 border-t border-gray-100 items-center justify-between text-xs text-gray-500">
             <div className="flex items-center gap-1">
               <Tag className="w-3.5 h-3.5 text-emerald-500" />
-              <span>Model Item Unik:</span>
+              <span>Item:</span>
             </div>
             <span className="font-extrabold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded text-xs">
               {loadingMetrics.inflowUniqueCount} Produk
@@ -600,7 +600,7 @@ const Dashboard: React.FC<DashboardProps> = ({ items, transactions, onNavigate }
           <div className="hidden md:flex mt-4 pt-3.5 border-t border-gray-100 items-center justify-between text-xs text-gray-500">
             <div className="flex items-center gap-1">
               <Tag className="w-3.5 h-3.5 text-blue-500" />
-              <span>Model Item Unik:</span>
+              <span>Item:</span>
             </div>
             <span className="font-extrabold text-blue-700 bg-blue-50 px-2 py-0.5 rounded text-xs">
               {loadingMetrics.outflowUniqueCount} Produk
@@ -701,46 +701,6 @@ const Dashboard: React.FC<DashboardProps> = ({ items, transactions, onNavigate }
         {/* Quick Operations and Inventory Contribution Info */}
         <div className="space-y-4 md:space-y-6">
 
-          {/* Quick Actions Card */}
-          <div data-html2canvas-ignore="true" className="bg-gradient-to-br from-red-600 to-red-700 text-white p-4 md:p-6 rounded-2xl md:rounded-3xl shadow-sm relative overflow-hidden">
-            <div className="absolute right-0 bottom-0 translate-x-4 translate-y-4 text-white/5 pointer-events-none">
-              <ThermometerSnowflake className="w-28 h-28 md:w-40 md:h-40" />
-            </div>
-            <h3 className="text-base md:text-lg font-black mb-1 flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 md:w-5 h-5 text-red-100" />
-              Aksi Cepat Logistik
-            </h3>
-            <p className="text-[11px] md:text-xs text-white/80 mb-4 md:mb-5">Pintasan navigasi untuk mengelola muat barang chiller.</p>
-
-            <div className="space-y-2.5 md:space-y-3">
-              <button
-                onClick={() => onNavigate('INFLOW')}
-                className="w-full flex items-center justify-between p-2.5 md:p-3.5 bg-white/10 hover:bg-white/20 text-white rounded-xl md:rounded-2xl group transition-all"
-              >
-                <div className="flex items-center gap-2.5 md:gap-3">
-                  <div className="p-1.5 md:p-2 bg-white/20 rounded-lg">
-                    <ArrowDownToLine className="w-3.5 h-3.5 md:w-4 h-4 text-white" />
-                  </div>
-                  <span className="font-bold text-xs md:text-sm">Input Barang Baru</span>
-                </div>
-                <ChevronRight className="w-3.5 h-3.5 md:w-4 h-4 text-white/80 group-hover:translate-x-1 transition-transform" />
-              </button>
-
-              <button
-                onClick={() => onNavigate('INVENTORY')}
-                className="w-full flex items-center justify-between p-2.5 md:p-3.5 bg-white/10 hover:bg-white/20 text-white rounded-xl md:rounded-2xl group transition-all"
-              >
-                <div className="flex items-center gap-2.5 md:gap-3">
-                  <div className="p-1.5 md:p-2 bg-white/20 rounded-lg">
-                    <ThermometerSnowflake className="w-3.5 h-3.5 md:w-4 h-4 text-white" />
-                  </div>
-                  <span className="font-bold text-xs md:text-sm">Cek Stok Chiller</span>
-                </div>
-                <ChevronRight className="w-3.5 h-3.5 md:w-4 h-4 text-white/80 group-hover:translate-x-1 transition-transform" />
-              </button>
-            </div>
-          </div>
-
           {/* Unique Items composition list inside the Chiller */}
           <div className="bg-white p-4 md:p-5 rounded-2xl md:rounded-3xl shadow-sm border border-gray-100 space-y-3 md:space-y-4">
             <div className="flex items-center justify-between">
@@ -758,14 +718,14 @@ const Dashboard: React.FC<DashboardProps> = ({ items, transactions, onNavigate }
                 Chiller dalam keadaan kosong.
               </div>
             ) : (
-              <div className="space-y-3.5 max-h-[220px] overflow-y-auto pr-1">
+              <div className="space-y-3.5 max-h-[340px] overflow-y-auto pr-1">
                 {stockBreakdownList.slice(0, 5).map((item, index) => {
                   const contributionPercent = totalStockWeight > 0
                     ? Math.min(100, Math.max(0, (item.kgs / totalStockWeight) * 100))
                     : 0;
 
                   return (
-                    <div key={item.code} className="space-y-1">
+                    <div key={item.code} className="space-y-1.5">
                       <div className="flex items-center justify-between text-xs font-semibold">
                         <div className="flex items-center gap-1.5 truncate max-w-[160px]">
                           <span className="w-2.5 h-2.5 rounded-full bg-red-500 flex-shrink-0"></span>
@@ -1016,8 +976,8 @@ const Dashboard: React.FC<DashboardProps> = ({ items, transactions, onNavigate }
                       <td className="p-2 font-mono font-bold text-red-600 border-r border-slate-200">{t.chillerId}</td>
                       <td className="p-2 border-r border-slate-200">
                         <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase ${t.type === 'IN' ? 'bg-green-100 text-green-700' :
-                            t.type === 'OUT' ? 'bg-blue-100 text-blue-700' :
-                              'bg-orange-100 text-orange-700'
+                          t.type === 'OUT' ? 'bg-blue-100 text-blue-700' :
+                            'bg-orange-100 text-orange-700'
                           }`}>
                           {t.type} {t.destination ? `→ ${t.destination}` : ''}
                         </span>
@@ -1052,8 +1012,8 @@ const Dashboard: React.FC<DashboardProps> = ({ items, transactions, onNavigate }
             <div className="p-6 pb-4 border-b border-gray-100 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${activeDetailsModal === 'STOK_CHILLER' ? 'bg-red-50 text-red-600' :
-                    activeDetailsModal === 'BARANG_MASUK' ? 'bg-emerald-50 text-emerald-600' :
-                      activeDetailsModal === 'BARANG_KELUAR' ? 'bg-blue-50 text-blue-600' : 'bg-violet-50 text-violet-600'
+                  activeDetailsModal === 'BARANG_MASUK' ? 'bg-emerald-50 text-emerald-600' :
+                    activeDetailsModal === 'BARANG_KELUAR' ? 'bg-blue-50 text-blue-600' : 'bg-violet-50 text-violet-600'
                   }`}>
                   {activeDetailsModal === 'STOK_CHILLER' && <Package className="w-5 h-5" />}
                   {activeDetailsModal === 'BARANG_MASUK' && <ArrowDownToLine className="w-5 h-5" />}
@@ -1240,7 +1200,7 @@ const Dashboard: React.FC<DashboardProps> = ({ items, transactions, onNavigate }
                       <p className="text-xl font-black text-slate-800">{filteredInbound.length} <span className="text-xs font-bold text-gray-500">Kali</span></p>
                     </div>
                     <div className="space-y-1">
-                      <span className="text-[10px] uppercase tracking-wider font-extrabold text-gray-400">Model Item Masuk</span>
+                      <span className="text-[10px] uppercase tracking-wider font-extrabold text-gray-400">Item Masuk</span>
                       <p className="text-xl font-black text-slate-800">{loadingMetrics.inflowUniqueCount} <span className="text-xs font-bold text-gray-500">Produk</span></p>
                     </div>
                   </div>
@@ -1314,7 +1274,7 @@ const Dashboard: React.FC<DashboardProps> = ({ items, transactions, onNavigate }
                       <p className="text-xl font-black text-slate-800">{filteredOutbound.length} <span className="text-xs font-bold text-gray-500">Kali</span></p>
                     </div>
                     <div className="space-y-1">
-                      <span className="text-[10px] uppercase tracking-wider font-extrabold text-gray-400">Model Item Keluar</span>
+                      <span className="text-[10px] uppercase tracking-wider font-extrabold text-gray-400">Item Keluar</span>
                       <p className="text-xl font-black text-slate-800">{loadingMetrics.outflowUniqueCount} <span className="text-xs font-bold text-gray-500">Produk</span></p>
                     </div>
                   </div>
@@ -1489,3 +1449,4 @@ const Dashboard: React.FC<DashboardProps> = ({ items, transactions, onNavigate }
 };
 
 export default Dashboard;
+

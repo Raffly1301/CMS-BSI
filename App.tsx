@@ -13,7 +13,8 @@ import {
   ChevronLast,
   ChevronFirst,
   Database,
-  Layers
+  Layers,
+  Info
 } from 'lucide-react';
 import { ViewState, ChillerItem, Transaction, SystemLog, User, OutflowDestination } from './types';
 import Dashboard from './components/Dashboard';
@@ -40,6 +41,7 @@ const App: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isAboutOpen, setIsAboutOpen] = useState(false);
 
   const [chillerTable, setChillerTable] = useState<ChillerItem[]>([]);
   const [transactionTable, setTransactionTable] = useState<Transaction[]>([]);
@@ -776,15 +778,31 @@ const App: React.FC = () => {
           </div>
         )}
 
-        <div className="p-4 border-t border-white/10">
+        <div className={`p-4 border-t border-white/10 flex ${sidebarCollapsed && window.innerWidth >= 768 ? 'flex-col gap-3 items-center justify-center' : 'items-center justify-between gap-2'}`}>
           <button
             onClick={handleLogout}
-            className="w-full flex items-center gap-4 px-4 py-3.5 hover:bg-red-500 rounded-2xl transition-all text-white/70 hover:text-white group"
+            className={`
+              flex items-center gap-4 px-4 py-3.5 hover:bg-red-500 rounded-2xl transition-all text-white/70 hover:text-white group
+              ${sidebarCollapsed && window.innerWidth >= 768 ? 'w-10 h-10 p-0 items-center justify-center rounded-xl bg-white/5 hover:bg-red-500 shadow-md' : 'flex-1'}
+            `}
+            title="Logout"
           >
-            <LogOut size={20} className="group-hover:-translate-x-1 transition-transform" />
+            <LogOut size={20} className={`${sidebarCollapsed && window.innerWidth >= 768 ? '' : 'group-hover:-translate-x-1'} transition-transform`} />
             {(!sidebarCollapsed || window.innerWidth < 768) && (
               <span className="text-[11px] font-black uppercase tracking-widest">Logout</span>
             )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsAboutOpen(true)}
+            className={`
+              p-2 rounded-xl text-white/35 hover:text-white/80 hover:bg-white/5 transition-all shrink-0 cursor-pointer flex items-center justify-center
+              ${sidebarCollapsed && window.innerWidth >= 768 ? 'w-10 h-10 bg-white/5' : ''}
+            `}
+            title="Tentang Aplikasi (About)"
+          >
+            <Info size={15} />
           </button>
         </div>
       </aside>
@@ -807,6 +825,81 @@ const App: React.FC = () => {
           </div>
         )}
       </main>
+
+      {/* About Modal */}
+      {isAboutOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[999] flex items-center justify-center p-4 animate-in fade-in duration-300">
+          <div className="bg-white rounded-3xl p-6 md:p-8 max-w-md w-full shadow-2xl border border-gray-100 relative overflow-hidden animate-in zoom-in-95 duration-200">
+            {/* Background design elements */}
+            <div className="absolute top-0 right-0 w-32 h-32 bg-red-100 rounded-full mix-blend-multiply filter blur-2xl opacity-40 transform translate-x-8 -translate-y-8"></div>
+            <div className="absolute bottom-0 left-0 w-24 h-24 bg-red-50 rounded-full mix-blend-multiply filter blur-xl opacity-30 transform -translate-x-8 translate-y-8"></div>
+
+            <button
+              onClick={() => setIsAboutOpen(false)}
+              className="absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-xl transition-all cursor-pointer"
+              aria-label="Tutup"
+            >
+              <X size={18} />
+            </button>
+
+            <div className="relative">
+              {/* Logo / Icon */}
+              <div className="flex items-center gap-3 mb-5">
+                <div className="bg-white p-1.5 rounded-xl border border-gray-100 w-11 h-11 flex items-center justify-center shadow-md shrink-0">
+                  <img src="/logo2.png" alt="Logo" className="w-full h-full object-contain" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-gray-900 tracking-tight leading-none">BSI CMS</h3>
+                  <span className="text-[10px] font-bold text-red-600 uppercase tracking-wider">Chiller Management System</span>
+                </div>
+              </div>
+
+              {/* Description */}
+              <div className="space-y-4 text-xs text-gray-600 leading-relaxed">
+                <p>
+                  Sistem Informasi terintegrasi untuk pemantauan, pencatatan, dan analisis sediaan logistik pada gudang pendingin (chiller) secara real-time dan presisi.
+                </p>
+
+                <div className="pt-4 border-t border-gray-100">
+                  <span className="text-[10px] font-extrabold uppercase tracking-widest text-[#c01e1e] block mb-2.5">
+                    DIKEMBANGKAN OLEH:
+                  </span>
+                  <ul className="space-y-2 text-gray-800 font-bold">
+                    <li className="flex items-center gap-2">
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#c01e1e] shrink-0" />
+                      Didi Nurochman
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#c01e1e] shrink-0" />
+                      Habib Dwi Prajoto
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#c01e1e] shrink-0" />
+                      Raffly Pasya Trenadhi
+                    </li>
+                  </ul>
+                </div>
+
+                <div className="pt-4 border-t border-gray-100 flex items-center justify-between text-[10px] text-gray-400 font-semibold uppercase tracking-wider">
+                  <span>Versi 1.0.0 (Build 2026)</span>
+                  <span>© Bounty Segar Indonesia</span>
+                </div>
+              </div>
+
+              {/* Action Button */}
+              <div className="mt-6 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsAboutOpen(false)}
+                  className="w-full py-2.5 bg-gray-900 hover:bg-black text-white font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-md active:scale-95 cursor-pointer outline-none"
+                >
+                  Tutup Informasi
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
