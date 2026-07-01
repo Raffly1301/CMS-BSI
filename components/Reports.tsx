@@ -32,6 +32,9 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users }) =
   const [filterStartDate, setFilterStartDate] = useState('');
   const [filterEndDate, setFilterEndDate] = useState('');
   const [selectedItemCode, setSelectedItemCode] = useState<string>('');
+  const [filterDestination, setFilterDestination] = useState<string>('ALL');
+  const [filterPD, setFilterPD] = useState<string>('');
+  const [trxViewMode, setTrxViewMode] = useState<'BATCH' | 'ITEM'>('BATCH');
 
   // Slicing/Pagination states for faster rendering of massive lists
   const [trxPage, setTrxPage] = useState(1);
@@ -42,7 +45,7 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users }) =
   React.useEffect(() => {
     setTrxPage(1);
     setLogsPage(1);
-  }, [searchTerm, filterType, filterStartDate, filterEndDate, tab]);
+  }, [searchTerm, filterType, filterStartDate, filterEndDate, filterDestination, filterPD, tab, trxViewMode]);
 
   // Fast O(1) item lookup by batchId/chillerId to avoid nested O(N*T) array scans
   const itemsByBatchId = useMemo(() => {
@@ -144,9 +147,108 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users }) =
       const matchesEnd = !filterEndDate || trxDate <= filterEndDate;
       const matchesType = filterType === 'ALL' || t.type === filterType;
 
-      return matchesSearch && matchesStart && matchesEnd && matchesType;
+      const matchesDestination =
+        filterDestination === 'ALL' ||
+        (t.type === 'OUT' && t.destination === filterDestination);
+
+      const matchesPD =
+        !filterPD ||
+        (item?.productionDate === filterPD);
+
+      return matchesSearch && matchesStart && matchesEnd && matchesType && matchesDestination && matchesPD;
     });
-  }, [transactions, itemsByBatchId, searchTerm, filterType, filterStartDate, filterEndDate]);
+  }, [transactions, itemsByBatchId, searchTerm, filterType, filterStartDate, filterEndDate, filterDestination, filterPD]);
+
+  const trxSummary = useMemo(() => {
+    let inPcs = 0;
+    let inKgs = 0;
+    let outPcs = 0;
+    let outKgs = 0;
+    let qcApprovePcs = 0;
+    let qcApproveKgs = 0;
+    let qcRejectPcs = 0;
+    let qcRejectKgs = 0;
+
+    filteredTrx.forEach(t => {
+      if (t.type === 'IN') {
+        inPcs += t.pcs || 0;
+        inKgs += t.kgs || 0;
+      } else if (t.type === 'OUT') {
+        outPcs += t.pcs || 0;
+        outKgs += t.kgs || 0;
+      } else if (t.type === 'QC_APPROVED') {
+        qcApprovePcs += t.pcs || 0;
+        qcApproveKgs += t.kgs || 0;
+      } else if (t.type === 'QC_REJECTED') {
+        qcRejectPcs += t.pcs || 0;
+        qcRejectKgs += t.kgs || 0;
+      }
+    });
+
+    return {
+      inPcs,
+      inKgs,
+      outPcs,
+      outKgs,
+      qcApprovePcs,
+      qcApproveKgs,
+      qcRejectPcs,
+      qcRejectKgs,
+      totalCount: filteredTrx.length
+    };
+  }, [filteredTrx]);
+
+  const itemRecap = useMemo(() => {
+    const recap: {
+      [itemCode: string]: {
+        itemCode: string;
+        itemName: string;
+        inPcs: number;
+        inKgs: number;
+        outPcs: number;
+        outKgs: number;
+        qcApprovePcs: number;
+        qcApproveKgs: number;
+        qcRejectPcs: number;
+        qcRejectKgs: number;
+      }
+    } = {};
+
+    filteredTrx.forEach(t => {
+      const item = itemsByBatchId[t.chillerId];
+      const code = t.itemCode || item?.itemCode || 'UNKNOWN';
+      const name = item?.itemName || 'Batch Selesai/Keluar';
+      if (!recap[code]) {
+        recap[code] = {
+          itemCode: code,
+          itemName: name,
+          inPcs: 0,
+          inKgs: 0,
+          outPcs: 0,
+          outKgs: 0,
+          qcApprovePcs: 0,
+          qcApproveKgs: 0,
+          qcRejectPcs: 0,
+          qcRejectKgs: 0,
+        };
+      }
+      if (t.type === 'IN') {
+        recap[code].inPcs += t.pcs || 0;
+        recap[code].inKgs += t.kgs || 0;
+      } else if (t.type === 'OUT') {
+        recap[code].outPcs += t.pcs || 0;
+        recap[code].outKgs += t.kgs || 0;
+      } else if (t.type === 'QC_APPROVED') {
+        recap[code].qcApprovePcs += t.pcs || 0;
+        recap[code].qcApproveKgs += t.kgs || 0;
+      } else if (t.type === 'QC_REJECTED') {
+        recap[code].qcRejectPcs += t.pcs || 0;
+        recap[code].qcRejectKgs += t.kgs || 0;
+      }
+    });
+
+    return Object.values(recap).sort((a, b) => a.itemCode.localeCompare(b.itemCode));
+  }, [filteredTrx, itemsByBatchId]);
 
   const filteredLogs = useMemo(() => {
     return logs.filter(l =>
@@ -169,6 +271,8 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users }) =
     setFilterType('ALL');
     setFilterStartDate('');
     setFilterEndDate('');
+    setFilterDestination('ALL');
+    setFilterPD('');
   };
 
   const downloadPDF = () => {
@@ -243,76 +347,171 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users }) =
       </header>
 
       <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
-          {tab === 'TRANSACTIONS' || tab === 'LOGS' ? (
-            <div className="md:col-span-4 relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
-              <input
-                type="text"
-                placeholder="Cari Batch ID atau Produk..."
-                className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-transparent rounded-xl focus:bg-white focus:border-red-600 outline-none font-bold text-xs"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-            </div>
-          ) : tab === 'STOCK_CARD' ? (
-            <div className="md:col-span-6">
-              <select
-                className="w-full bg-gray-50 border border-transparent rounded-xl px-4 py-2 text-[10px] font-black uppercase outline-none focus:bg-white focus:border-red-600"
-                value={selectedItemCode}
-                onChange={(e) => setSelectedItemCode(e.target.value)}
-              >
-                <option value="">PILIH KODE ITEM UNTUK LIHAT RIWAYAT...</option>
-                {itemCodes.map(code => (
-                  <option key={code} value={code}>{code}</option>
-                ))}
-              </select>
-            </div>
-          ) : (
-            <div className="md:col-span-4 flex items-center">
-              <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Filter Tanggal Alokasi:</span>
-            </div>
-          )}
-
-          {(tab === 'TRANSACTIONS' || tab === 'ALLOCATION') && (
-            <>
-              {tab === 'TRANSACTIONS' && (
-                <div className="md:col-span-2">
-                  <select
-                    className="w-full bg-gray-50 border border-transparent rounded-xl px-4 py-2 text-[10px] font-black uppercase outline-none focus:bg-white focus:border-red-600"
-                    value={filterType}
-                    onChange={(e) => setFilterType(e.target.value as any)}
-                  >
-                    <option value="ALL">SEMUA TIPE</option>
-                    <option value="IN">MASUK (IN)</option>
-                    <option value="OUT">KELUAR (OUT)</option>
-                    <option value="QC_APPROVED">QC APPROVED</option>
-                    <option value="QC_REJECTED">QC REJECTED</option>
-                  </select>
-                </div>
-              )}
-              <div className={tab === 'ALLOCATION' ? "md:col-span-3" : "md:col-span-2"}>
+        {tab === 'TRANSACTIONS' ? (
+          <div className="space-y-4">
+            {/* Row 1: Search, Type, Start Date, End Date */}
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+              <div className="md:col-span-4 relative flex items-center">
+                <Search className="absolute left-3 text-gray-400" size={16} />
                 <input
-                  type="date"
-                  className="w-full bg-gray-50 border border-transparent rounded-xl px-3 py-2 text-[10px] font-black outline-none focus:bg-white focus:border-red-600"
-                  value={filterStartDate}
-                  onChange={(e) => setFilterStartDate(e.target.value)}
-                />
-              </div>
-              <div className={tab === 'ALLOCATION' ? "md:col-span-3" : "md:col-span-2"}>
-                <input
-                  type="date"
-                  className="w-full bg-gray-50 border border-transparent rounded-xl px-3 py-2 text-[10px] font-black outline-none focus:bg-white focus:border-red-600"
-                  value={filterEndDate}
-                  onChange={(e) => setFilterEndDate(e.target.value)}
+                  type="text"
+                  placeholder="Cari Batch ID atau Produk..."
+                  className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-transparent rounded-xl focus:bg-white focus:border-red-600 outline-none font-bold text-xs"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
                 />
               </div>
               <div className="md:col-span-2">
-                <button onClick={resetFilters} className="w-full py-2 bg-gray-100 hover:bg-gray-200 text-gray-500 rounded-xl text-[10px] font-black uppercase">Reset</button>
+                <select
+                  className="w-full bg-gray-50 border border-transparent rounded-xl px-4 py-2 text-[10px] font-black uppercase outline-none focus:bg-white focus:border-red-600 h-10"
+                  value={filterType}
+                  onChange={(e) => setFilterType(e.target.value as any)}
+                >
+                  <option value="ALL">SEMUA TIPE</option>
+                  <option value="IN">MASUK (IN)</option>
+                  <option value="OUT">KELUAR (OUT)</option>
+                  <option value="QC_APPROVED">QC APPROVED</option>
+                  <option value="QC_REJECTED">QC REJECTED</option>
+                </select>
               </div>
-            </>
-          )}
-        </div>
+              <div className="md:col-span-3">
+                <div className="relative">
+                  <input
+                    type="date"
+                    className="w-full bg-gray-50 border border-transparent rounded-xl px-3 py-2 text-[10px] font-black outline-none focus:bg-white focus:border-red-600 h-10"
+                    value={filterStartDate}
+                    onChange={(e) => setFilterStartDate(e.target.value)}
+                    title="Tanggal Awal Transaksi"
+                  />
+                  <span className="absolute -top-2.5 left-2.5 bg-white px-1 text-[7px] font-extrabold text-gray-400 uppercase tracking-widest scale-90">Mulai Waktu</span>
+                </div>
+              </div>
+              <div className="md:col-span-3">
+                <div className="relative">
+                  <input
+                    type="date"
+                    className="w-full bg-gray-50 border border-transparent rounded-xl px-3 py-2 text-[10px] font-black outline-none focus:bg-white focus:border-red-600 h-10"
+                    value={filterEndDate}
+                    onChange={(e) => setFilterEndDate(e.target.value)}
+                    title="Tanggal Akhir Transaksi"
+                  />
+                  <span className="absolute -top-2.5 left-2.5 bg-white px-1 text-[7px] font-extrabold text-gray-400 uppercase tracking-widest scale-90">Sampai Waktu</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Row 2: Filter PD, Filter Tujuan Keluar, Reset */}
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-4 pt-3 border-t border-gray-100">
+              <div className="md:col-span-4">
+                <div className="relative">
+                  <input
+                    type="date"
+                    className="w-full bg-gray-50 border border-transparent rounded-xl px-3 py-2 text-[10px] font-black outline-none focus:bg-white focus:border-red-600 h-10"
+                    value={filterPD}
+                    onChange={(e) => setFilterPD(e.target.value)}
+                    title="Filter berdasarkan Tanggal Produksi"
+                  />
+                  <span className="absolute -top-2.5 left-2.5 bg-white px-1 text-[7px] font-extrabold text-gray-400 uppercase tracking-widest scale-90">Filter PD (Tanggal Produksi)</span>
+                </div>
+              </div>
+              <div className="md:col-span-4">
+                <div className="relative">
+                  <select
+                    className="w-full bg-gray-50 border border-transparent rounded-xl px-3 py-2 text-[10px] font-black uppercase outline-none focus:bg-white focus:border-red-600 h-10"
+                    value={filterDestination}
+                    onChange={(e) => setFilterDestination(e.target.value)}
+                  >
+                    <option value="ALL">SEMUA TUJUAN KELUAR</option>
+                    <option value="Boneless">BONELESS</option>
+                    <option value="Parting">PARTING</option>
+                    <option value="Marinasi">MARINASI</option>
+                    <option value="Thowing">THOWING</option>
+                    <option value="FPS">FPS</option>
+                    <option value="Condem">CONDEM / AFKIR</option>
+                    <option value="CS">COLD STORAGE (CS)</option>
+                    <option value="Delive">DELIVERY / KIRIM</option>
+                    <option value="SMS">SMS</option>
+                    <option value="IQF">IQF</option>
+                    <option value="Retur">RETUR</option>
+                  </select>
+                  <span className="absolute -top-2.5 left-2.5 bg-white px-1 text-[7px] font-extrabold text-gray-400 uppercase tracking-widest scale-90">Tujuan Keluar (Untuk OUT)</span>
+                </div>
+              </div>
+              <div className="md:col-span-4 flex items-end">
+                <button
+                  type="button"
+                  onClick={resetFilters}
+                  className="w-full h-10 bg-gray-100 hover:bg-gray-200 text-gray-500 rounded-xl text-[10px] font-black uppercase transition-all tracking-wider active:scale-95 cursor-pointer flex items-center justify-center"
+                >
+                  RESET SARINGAN
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+            {tab === 'LOGS' ? (
+              <div className="md:col-span-8 relative flex items-center">
+                <Search className="absolute left-3 text-gray-400" size={16} />
+                <input
+                  type="text"
+                  placeholder="Cari Log Aktivitas..."
+                  className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-transparent rounded-xl focus:bg-white focus:border-red-600 outline-none font-bold text-xs"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </div>
+            ) : tab === 'STOCK_CARD' ? (
+              <div className="md:col-span-8">
+                <select
+                  className="w-full bg-gray-50 border border-transparent rounded-xl px-4 py-2 text-[10px] font-black uppercase outline-none focus:bg-white focus:border-red-600 h-10"
+                  value={selectedItemCode}
+                  onChange={(e) => setSelectedItemCode(e.target.value)}
+                >
+                  <option value="">PILIH KODE ITEM UNTUK LIHAT RIWAYAT...</option>
+                  {itemCodes.map(code => (
+                    <option key={code} value={code}>{code}</option>
+                  ))}
+                </select>
+              </div>
+            ) : (
+              <div className="md:col-span-4 flex items-center">
+                <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Filter Tanggal Alokasi:</span>
+              </div>
+            )}
+
+            {tab === 'ALLOCATION' && (
+              <>
+                <div className="md:col-span-3">
+                  <input
+                    type="date"
+                    className="w-full bg-gray-50 border border-transparent rounded-xl px-3 py-2 text-[10px] font-black outline-none focus:bg-white focus:border-red-600 h-10"
+                    value={filterStartDate}
+                    onChange={(e) => setFilterStartDate(e.target.value)}
+                  />
+                </div>
+                <div className="md:col-span-3">
+                  <input
+                    type="date"
+                    className="w-full bg-gray-50 border border-transparent rounded-xl px-3 py-2 text-[10px] font-black outline-none focus:bg-white focus:border-red-600 h-10"
+                    value={filterEndDate}
+                    onChange={(e) => setFilterEndDate(e.target.value)}
+                  />
+                </div>
+              </>
+            )}
+
+            <div className={tab === 'ALLOCATION' ? "md:col-span-2" : "md:col-span-4"}>
+              <button
+                type="button"
+                onClick={resetFilters}
+                className="w-full h-10 bg-gray-100 hover:bg-gray-200 text-gray-500 rounded-xl text-[10px] font-black uppercase transition-all tracking-wider active:scale-95 cursor-pointer flex items-center justify-center"
+              >
+                Reset
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       <div id="reports-export-area" className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden p-0">
@@ -353,68 +552,230 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users }) =
         )}
         {tab === 'TRANSACTIONS' ? (
           <div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left">
-                <thead className="bg-gray-50 border-b border-gray-100">
-                  <tr>
-                    <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Batch ID</th>
-                    <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Aktivitas</th>
-                    <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">User</th>
-                    <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Volume</th>
-                    <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Waktu</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {visibleTrx.length > 0 ? (
-                    visibleTrx.map(trx => {
-                      const item = itemsByBatchId[trx.chillerId];
-                      return (
-                        <tr key={trx.id} className="hover:bg-gray-50/50 transition-colors">
-                          <td className="px-6 py-4">
-                            <div className="text-[10px] font-black text-red-600 uppercase tracking-tighter">{trx.chillerId}</div>
-                            <div className="text-[11px] font-bold text-gray-800 uppercase">{trx.itemCode || item?.itemCode || 'Batch Selesai/Keluar'}</div>
-                          </td>
-                          <td className="px-6 py-4">
-                            <span className={`text-[8px] font-black px-2 py-1 rounded-full uppercase ${trx.type === 'IN' ? 'bg-green-100 text-green-700' :
-                                trx.type === 'OUT' ? 'bg-blue-100 text-blue-700' :
-                                  trx.type.includes('APPROVED') ? 'bg-emerald-100 text-emerald-700' :
-                                    'bg-red-100 text-red-700'
-                              }`}>
-                              {trx.type.replace('_', ' ')} {trx.destination && `→ ${trx.destination}`}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4">
-                            <div className="flex items-center gap-2">
-                              <UserIcon size={12} className="text-gray-400" />
-                              <span className="text-xs font-bold text-gray-600 uppercase">{trx.userId}</span>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 text-right">
-                            <div className="text-xs font-black text-gray-800">{formatNumber(trx.pcs, 0)} Pcs</div>
-                            <div className="text-[10px] font-bold text-gray-400">{formatNumber(trx.kgs, 2)} Kg</div>
-                          </td>
-                          <td className="px-6 py-4 text-right text-[10px] font-bold text-gray-400">
-                            {new Date(trx.timestamp).toLocaleString('id-ID', { hour12: false })}
-                          </td>
-                        </tr>
-                      )
-                    })
-                  ) : (
-                    <tr><td colSpan={5} className="px-6 py-12 text-center text-gray-400 font-black uppercase text-[10px]">Data tidak ditemukan</td></tr>
-                  )}
-                </tbody>
-              </table>
+            {/* SUM TOTALS PANEL FOR FILTERED TRANSACTIONS */}
+            <div className="p-4 bg-gray-50/50 border-b border-gray-100 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm flex items-center gap-3">
+                <div className="w-9 h-9 rounded-lg bg-green-50 text-green-600 flex items-center justify-center font-bold text-xs border border-green-100">
+                  IN
+                </div>
+                <div>
+                  <p className="text-[8px] font-black text-gray-400 uppercase tracking-widest">Total Masuk (IN)</p>
+                  <p className="text-xs font-black text-gray-800">{formatNumber(trxSummary.inPcs, 0)} <span className="text-[10px] text-gray-400 font-bold">Pcs</span></p>
+                  <p className="text-[11px] font-extrabold text-green-600">{formatNumber(trxSummary.inKgs, 2)} <span className="text-[9px] text-gray-400 font-bold">Kg</span></p>
+                </div>
+              </div>
+
+              <div className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm flex items-center gap-3">
+                <div className="w-9 h-9 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center font-bold text-xs border border-blue-100">
+                  OUT
+                </div>
+                <div>
+                  <p className="text-[8px] font-black text-gray-400 uppercase tracking-widest">Total Keluar (OUT)</p>
+                  <p className="text-xs font-black text-gray-800">{formatNumber(trxSummary.outPcs, 0)} <span className="text-[10px] text-gray-400 font-bold">Pcs</span></p>
+                  <p className="text-[11px] font-extrabold text-blue-600">{formatNumber(trxSummary.outKgs, 2)} <span className="text-[9px] text-gray-400 font-bold">Kg</span></p>
+                </div>
+              </div>
+
+              <div className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm flex items-center gap-3">
+                <div className="w-9 h-9 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold text-xs border border-emerald-100">
+                  QC
+                </div>
+                <div>
+                  <p className="text-[8px] font-black text-gray-400 uppercase tracking-widest">QC APPROVED</p>
+                  <p className="text-xs font-black text-gray-800">{formatNumber(trxSummary.qcApprovePcs, 0)} <span className="text-[10px] text-gray-400 font-bold">Pcs</span></p>
+                  <p className="text-[11px] font-extrabold text-emerald-600">{formatNumber(trxSummary.qcApproveKgs, 2)} <span className="text-[9px] text-gray-400 font-bold">Kg</span></p>
+                </div>
+              </div>
+
+              <div className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm flex items-center gap-3">
+                <div className="w-9 h-9 rounded-lg bg-red-50 text-red-600 flex items-center justify-center font-bold text-xs border border-red-100">
+                  REJ
+                </div>
+                <div>
+                  <p className="text-[8px] font-black text-gray-400 uppercase tracking-widest">QC REJECTED</p>
+                  <p className="text-xs font-black text-gray-800">{formatNumber(trxSummary.qcRejectPcs, 0)} <span className="text-[10px] text-gray-400 font-bold">Pcs</span></p>
+                  <p className="text-[11px] font-extrabold text-red-600">{formatNumber(trxSummary.qcRejectKgs, 2)} <span className="text-[9px] text-gray-400 font-bold">Kg</span></p>
+                </div>
+              </div>
             </div>
 
-            {filteredTrx.length > visibleTrx.length && (
-              <div data-html2canvas-ignore="true" className="p-4 flex justify-center border-t border-gray-100 bg-gray-50/50">
+            {/* VIEW MODE SWITCHER */}
+            <div data-html2canvas-ignore="true" className="p-4 bg-white border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex gap-1.5 bg-gray-100 p-1 rounded-xl w-fit">
                 <button
                   type="button"
-                  onClick={() => setTrxPage(prev => prev + 1)}
-                  className="px-6 py-2 bg-white hover:bg-gray-100 text-red-600 font-black text-xs uppercase tracking-wider rounded-xl border-2 border-red-50 hover:border-red-100 transition-all shadow-md flex items-center gap-2 active:scale-95 cursor-pointer outline-none"
+                  onClick={() => setTrxViewMode('BATCH')}
+                  className={`px-4 py-2 rounded-lg text-[10px] font-black transition-all uppercase tracking-wider cursor-pointer ${trxViewMode === 'BATCH'
+                      ? 'bg-white text-red-600 shadow-sm'
+                      : 'text-gray-500 hover:text-gray-900'
+                    }`}
                 >
-                  Lihat Lebih Banyak ({filteredTrx.length - visibleTrx.length} sisa)
+                  Rekap Per Batch
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setTrxViewMode('ITEM')}
+                  className={`px-4 py-2 rounded-lg text-[10px] font-black transition-all uppercase tracking-wider cursor-pointer ${trxViewMode === 'ITEM'
+                      ? 'bg-white text-red-600 shadow-sm'
+                      : 'text-gray-500 hover:text-gray-900'
+                    }`}
+                >
+                  Rekap Per Item
+                </button>
+              </div>
+              <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">
+                {trxViewMode === 'BATCH' ? `${filteredTrx.length} Transaksi Batch` : `${itemRecap.length} Item Terkait`}
+              </span>
+            </div>
+
+            {trxViewMode === 'BATCH' ? (
+              <div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead className="bg-gray-50 border-b border-gray-100">
+                      <tr>
+                        <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Batch ID</th>
+                        <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Aktivitas</th>
+                        <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">User</th>
+                        <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Volume</th>
+                        <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Waktu</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {visibleTrx.length > 0 ? (
+                        visibleTrx.map(trx => {
+                          const item = itemsByBatchId[trx.chillerId];
+                          return (
+                            <tr key={trx.id} className="hover:bg-gray-50/50 transition-colors">
+                              <td className="px-6 py-4">
+                                <div className="text-[10px] font-black text-red-600 uppercase tracking-tighter">{trx.chillerId}</div>
+                                <div className="text-[11px] font-bold text-gray-800 uppercase">{trx.itemCode || item?.itemCode || 'Batch Selesai/Keluar'}</div>
+                                {item?.source && (
+                                  <div className="flex flex-wrap gap-1 mt-1">
+                                    <span className="bg-red-50 text-red-600 text-[8px] font-black uppercase px-1.5 py-0.5 rounded border border-red-100">
+                                      S: {item.source}
+                                    </span>
+                                    {item.allocation && (
+                                      <span className="bg-blue-50 text-blue-600 text-[8px] font-black uppercase px-1.5 py-0.5 rounded border border-blue-100">
+                                        A: {item.allocation}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                              </td>
+                              <td className="px-6 py-4">
+                                <span className={`text-[8px] font-black px-2 py-1 rounded-full uppercase ${trx.type === 'IN' ? 'bg-green-100 text-green-700' :
+                                  trx.type === 'OUT' ? 'bg-blue-100 text-blue-700' :
+                                    trx.type.includes('APPROVED') ? 'bg-emerald-100 text-emerald-700' :
+                                      'bg-red-100 text-red-700'
+                                  }`}>
+                                  {trx.type.replace('_', ' ')} {trx.destination && `→ ${trx.destination}`}
+                                </span>
+                              </td>
+                              <td className="px-6 py-4">
+                                <div className="flex items-center gap-2">
+                                  <UserIcon size={12} className="text-gray-400" />
+                                  <span className="text-xs font-bold text-gray-600 uppercase">{trx.userId}</span>
+                                </div>
+                              </td>
+                              <td className="px-6 py-4 text-right">
+                                <div className="text-xs font-black text-gray-800">{formatNumber(trx.pcs, 0)} Pcs</div>
+                                <div className="text-[10px] font-bold text-gray-400">{formatNumber(trx.kgs, 2)} Kg</div>
+                              </td>
+                              <td className="px-6 py-4 text-right text-[10px] font-bold text-gray-400">
+                                {new Date(trx.timestamp).toLocaleString('id-ID', { hour12: false })}
+                              </td>
+                            </tr>
+                          )
+                        })
+                      ) : (
+                        <tr><td colSpan={5} className="px-6 py-12 text-center text-gray-400 font-black uppercase text-[10px]">Data tidak ditemukan</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {filteredTrx.length > visibleTrx.length && (
+                  <div data-html2canvas-ignore="true" className="p-4 flex justify-center border-t border-gray-100 bg-gray-50/50">
+                    <button
+                      type="button"
+                      onClick={() => setTrxPage(prev => prev + 1)}
+                      className="px-6 py-2 bg-white hover:bg-gray-100 text-red-600 font-black text-xs uppercase tracking-wider rounded-xl border-2 border-red-50 hover:border-red-100 transition-all shadow-md flex items-center gap-2 active:scale-95 cursor-pointer outline-none"
+                    >
+                      Lihat Lebih Banyak ({filteredTrx.length - visibleTrx.length} sisa)
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead className="bg-gray-50 border-b border-gray-100">
+                      <tr>
+                        <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Produk / Item</th>
+                        <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center">Masuk (IN)</th>
+                        <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center">Keluar (OUT)</th>
+                        <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center">QC Approved</th>
+                        <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center">QC Rejected</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {itemRecap.length > 0 ? (
+                        itemRecap.map(recap => (
+                          <tr key={recap.itemCode} className="hover:bg-gray-50/50 transition-colors">
+                            <td className="px-6 py-4">
+                              <div className="text-[10px] font-black text-gray-900 uppercase tracking-tight">{recap.itemCode}</div>
+                              <div className="text-xs font-bold text-gray-500">{recap.itemName}</div>
+                            </td>
+                            <td className="px-6 py-4 text-center">
+                              {recap.inPcs > 0 || recap.inKgs > 0 ? (
+                                <>
+                                  <div className="text-xs font-black text-green-600">{formatNumber(recap.inPcs, 0)} Pcs</div>
+                                  <div className="text-[10px] font-bold text-green-500/80">{formatNumber(recap.inKgs, 2)} Kg</div>
+                                </>
+                              ) : (
+                                <span className="text-[10px] text-gray-300 font-extrabold">-</span>
+                              )}
+                            </td>
+                            <td className="px-6 py-4 text-center">
+                              {recap.outPcs > 0 || recap.outKgs > 0 ? (
+                                <>
+                                  <div className="text-xs font-black text-blue-600">{formatNumber(recap.outPcs, 0)} Pcs</div>
+                                  <div className="text-[10px] font-bold text-blue-500/80">{formatNumber(recap.outKgs, 2)} Kg</div>
+                                </>
+                              ) : (
+                                <span className="text-[10px] text-gray-300 font-extrabold">-</span>
+                              )}
+                            </td>
+                            <td className="px-6 py-4 text-center">
+                              {recap.qcApprovePcs > 0 || recap.qcApproveKgs > 0 ? (
+                                <>
+                                  <div className="text-xs font-black text-emerald-600">{formatNumber(recap.qcApprovePcs, 0)} Pcs</div>
+                                  <div className="text-[10px] font-bold text-emerald-500/80">{formatNumber(recap.qcApproveKgs, 2)} Kg</div>
+                                </>
+                              ) : (
+                                <span className="text-[10px] text-gray-300 font-extrabold">-</span>
+                              )}
+                            </td>
+                            <td className="px-6 py-4 text-center">
+                              {recap.qcRejectPcs > 0 || recap.qcRejectKgs > 0 ? (
+                                <>
+                                  <div className="text-xs font-black text-red-600">{formatNumber(recap.qcRejectPcs, 0)} Pcs</div>
+                                  <div className="text-[10px] font-bold text-red-500/80">{formatNumber(recap.qcRejectKgs, 2)} Kg</div>
+                                </>
+                              ) : (
+                                <span className="text-[10px] text-gray-300 font-extrabold">-</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr><td colSpan={5} className="px-6 py-12 text-center text-gray-400 font-black uppercase text-[10px]">Data tidak ditemukan</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
           </div>
@@ -495,8 +856,8 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users }) =
                         </td>
                         <td className="px-6 py-4">
                           <span className={`text-[8px] font-black px-2 py-1 rounded-full uppercase ${trx.type === 'IN' ? 'bg-green-100 text-green-700' :
-                              trx.type === 'OUT' ? 'bg-blue-100 text-blue-700' :
-                                'bg-gray-100 text-gray-700'
+                            trx.type === 'OUT' ? 'bg-blue-100 text-blue-700' :
+                              'bg-gray-100 text-gray-700'
                             }`}>
                             {trx.type} {trx.destination && `→ ${trx.destination}`}
                           </span>
@@ -638,11 +999,18 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users }) =
                       return (
                         <tr key={t.id} className="hover:bg-slate-50/50">
                           <td className="p-2 font-mono font-bold text-red-600 border-r border-slate-200">{t.chillerId}</td>
-                          <td className="p-2 font-sans font-bold text-slate-700 border-r border-slate-200">{t.itemCode || item?.itemCode || 'N/A'}</td>
+                          <td className="p-2 font-sans font-bold text-slate-700 border-r border-slate-200">
+                            <div>{t.itemCode || item?.itemCode || 'N/A'}</div>
+                            {item?.source && (
+                              <div className="text-[7px] text-slate-400 mt-1 font-semibold">
+                                S: {item.source} | A: {item.allocation}
+                              </div>
+                            )}
+                          </td>
                           <td className="p-2 border-r border-slate-200">
                             <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase ${t.type === 'IN' ? 'bg-green-100 text-green-700' :
-                                t.type === 'OUT' ? 'bg-blue-100 text-blue-700' :
-                                  'bg-orange-100 text-orange-700'
+                              t.type === 'OUT' ? 'bg-blue-100 text-blue-700' :
+                                'bg-orange-100 text-orange-700'
                               }`}>
                               {t.type} {t.destination ? `→ ${t.destination}` : ''}
                             </span>
@@ -741,8 +1109,8 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users }) =
                         <td className="p-2 font-mono font-bold text-red-600 border-r border-slate-200">{trx.chillerId}</td>
                         <td className="p-2 border-r border-slate-200">
                           <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase ${trx.type === 'IN' ? 'bg-green-100 text-green-700' :
-                              trx.type === 'OUT' ? 'bg-blue-100 text-blue-700' :
-                                'bg-gray-100 text-gray-700'
+                            trx.type === 'OUT' ? 'bg-blue-100 text-blue-700' :
+                              'bg-gray-100 text-gray-700'
                             }`}>
                             {trx.type} {trx.destination ? `→ ${trx.destination}` : ''}
                           </span>

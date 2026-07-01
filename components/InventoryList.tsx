@@ -46,6 +46,8 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
   const [selectedItemForSingleOut, setSelectedItemForSingleOut] = useState<ChillerItem | null>(null);
   const [destination, setDestination] = useState<OutflowDestination>('Boneless');
   const [showAdminCondemConfirm, setShowAdminCondemConfirm] = useState(false);
+  const [isPDModalOpen, setIsPDModalOpen] = useState(false);
+  const [expandedPD, setExpandedPD] = useState<string | null>(null);
 
   const [outPcs, setOutPcs] = useState<number>(0);
   const [outKgs, setOutKgs] = useState<number>(0);
@@ -276,6 +278,36 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
     }), { pcs: 0, kgs: 0 });
   }, [filteredItems]);
 
+  const uniqueProductionDatesCount = useMemo(() => {
+    const dates = filteredItems.map(item => item.productionDate).filter(Boolean);
+    return new Set(dates).size;
+  }, [filteredItems]);
+
+  const pdBreakdown = useMemo(() => {
+    const groups: { [date: string]: { date: string; pcs: number; kgs: number; items: ChillerItem[] } } = {};
+
+    filteredItems.forEach(item => {
+      const date = item.productionDate || 'TANPA TANGGAL';
+      if (!groups[date]) {
+        groups[date] = {
+          date,
+          pcs: 0,
+          kgs: 0,
+          items: []
+        };
+      }
+      groups[date].pcs += item.pcs || 0;
+      groups[date].kgs += item.kgs || 0;
+      groups[date].items.push(item);
+    });
+
+    return Object.values(groups).sort((a, b) => {
+      if (a.date === 'TANPA TANGGAL') return 1;
+      if (b.date === 'TANPA TANGGAL') return -1;
+      return b.date.localeCompare(a.date);
+    });
+  }, [filteredItems]);
+
   const resetFilters = () => {
     setSearchTerm('');
     setFilterSource('ALL');
@@ -321,7 +353,7 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
     <div className="space-y-4 pb-24">
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-2">
         <div>
-          <h2 className="text-xl md:text-2xl font-black text-gray-900 tracking-tight uppercase">Stok Chiller Aktif</h2>
+          <h2 className="text-xl md:text-2xl font-black text-gray-900 tracking-tight uppercase">Stok Chiller</h2>
           <p className="text-[8px] md:text-[10px] text-gray-500 font-bold uppercase tracking-widest">Manajemen Inventori</p>
         </div>
         <div className="flex items-center gap-2 w-full md:w-auto">
@@ -334,9 +366,19 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
       </header>
 
       <div className="grid grid-cols-2 md:grid-cols-3 gap-2 md:gap-3">
-        <div className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm flex flex-col">
-          <p className="text-[7px] font-black text-gray-400 uppercase tracking-widest">Total Batch</p>
-          <div className="flex items-baseline gap-1.5"><span className="text-xl font-black text-gray-900">{filteredItems.length}</span><span className="text-[9px] font-bold text-gray-400">Items</span></div>
+        <div
+          onClick={() => setIsPDModalOpen(true)}
+          className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm flex flex-col justify-between cursor-pointer hover:border-red-200 hover:shadow-md transition-all active:scale-[0.98] group relative"
+          title="Klik untuk melihat detail per tanggal produksi"
+        >
+          <div>
+            <div className="flex justify-between items-center">
+              <p className="text-[7px] font-black text-gray-400 uppercase tracking-widest group-hover:text-red-600 transition-colors">Total Batch PD</p>
+              <span className="text-[7px] font-black text-red-600 bg-red-50 px-1 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-all uppercase tracking-wider">Detail</span>
+            </div>
+            <div className="flex items-baseline gap-1.5"><span className="text-xl font-black text-gray-900">{uniqueProductionDatesCount}</span><span className="text-[9px] font-bold text-gray-400">Production Date</span></div>
+          </div>
+          <span className="text-[9px] text-gray-400 mt-1 font-bold group-hover:text-red-600 transition-colors">({filteredItems.length} Batch Fisik)</span>
         </div>
         <div className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm flex flex-col">
           <p className="text-[7px] font-black text-gray-400 uppercase tracking-widest">Total Quantity</p>
@@ -801,6 +843,163 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
                   )}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================= PRODUCTION DATE DETAIL BREAKDOWN MODAL ================= */}
+      {isPDModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-white w-full max-w-2xl rounded-2xl overflow-hidden shadow-2xl border border-gray-100 flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-200 font-sans">
+            {/* Modal Header */}
+            <div className="p-4 md:p-6 border-b border-gray-100 flex items-center justify-between bg-white">
+              <div>
+                <h3 className="text-base font-black text-gray-900 uppercase tracking-tight flex items-center gap-2">
+                  <Boxes className="text-red-600 w-5 h-5" /> Detail Tanggal Produksi (PD)
+                </h3>
+                <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest mt-0.5">
+                  Breakdown stok aktif berdasarkan tanggal produksi ({uniqueProductionDatesCount} PD Unik)
+                </p>
+              </div>
+              <button
+                onClick={() => { setIsPDModalOpen(false); setExpandedPD(null); }}
+                className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer text-gray-400 hover:text-gray-600"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-4 md:p-6 overflow-y-auto space-y-3 bg-gray-50/50 flex-1">
+              {pdBreakdown.length === 0 ? (
+                <div className="text-center py-12 text-gray-400 font-bold uppercase text-[11px]">
+                  Tidak ada batch produksi aktif.
+                </div>
+              ) : (
+                pdBreakdown.map((group) => {
+                  const isExpanded = expandedPD === group.date;
+                  return (
+                    <div
+                      key={group.date}
+                      className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden transition-all duration-200"
+                    >
+                      {/* Group Header */}
+                      <div
+                        onClick={() => setExpandedPD(isExpanded ? null : group.date)}
+                        className="p-3.5 flex items-center justify-between cursor-pointer hover:bg-gray-50/50 transition-colors select-none"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 bg-red-50 text-red-600 rounded-lg flex items-center justify-center font-black border border-red-100 text-xs">
+                            PD
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-extrabold text-xs text-gray-800">{group.date}</span>
+                              <span className="text-[8px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded-full font-black uppercase tracking-wider">
+                                {group.items.length} Batch
+                              </span>
+                            </div>
+                            <div className="text-[9px] text-gray-400 font-bold mt-0.5">
+                              Pecahan batch fisik di dalam chiller
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                          <div className="flex items-center bg-gray-50 px-2.5 py-1 rounded-lg border border-gray-100 gap-3 text-[10px]">
+                            <div className="flex flex-col items-end">
+                              <span className="text-[6px] font-black text-gray-400 uppercase">Qty</span>
+                              <span className="font-black text-gray-700">{formatNumber(group.pcs, 0)} <span className="text-[7px] text-gray-400 font-bold">Pcs</span></span>
+                            </div>
+                            <div className="w-px h-4 bg-gray-200" />
+                            <div className="flex flex-col items-end">
+                              <span className="text-[6px] font-black text-gray-400 uppercase">Weight</span>
+                              <span className="font-black text-gray-700">{formatNumber(group.kgs, 2)} <span className="text-[7px] text-gray-400 font-bold">Kg</span></span>
+                            </div>
+                          </div>
+                          {isExpanded ? (
+                            <ChevronUp size={16} className="text-gray-400" />
+                          ) : (
+                            <ChevronDown size={16} className="text-gray-400" />
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Group Batches Details */}
+                      {isExpanded && (
+                        <div className="border-t border-gray-100 bg-gray-50/40 p-3 space-y-2 max-h-72 overflow-y-auto animate-in slide-in-from-top-1 duration-150">
+                          <div className="hidden sm:grid grid-cols-12 gap-2 text-[8px] font-black text-gray-400 uppercase tracking-wider px-2 pb-1">
+                            <span className="col-span-3">Batch ID</span>
+                            <span className="col-span-5">Nama Item</span>
+                            <span className="col-span-2 text-right">Qty (Pcs)</span>
+                            <span className="col-span-2 text-right">Berat (Kg)</span>
+                          </div>
+
+                          {group.items.map((item) => (
+                            <div
+                              key={item.id}
+                              className="bg-white p-2.5 rounded-lg border border-gray-100 shadow-sm flex flex-col sm:grid sm:grid-cols-12 gap-2 items-start sm:items-center text-xs"
+                            >
+                              {/* Batch ID and badges */}
+                              <div className="col-span-3 flex flex-col gap-1 w-full">
+                                <span className="font-mono text-[9px] font-bold text-blue-600 tracking-tighter uppercase">
+                                  {item.batchId}
+                                </span>
+                                <div className="flex flex-wrap gap-1">
+                                  <span className="bg-red-50 text-red-600 text-[6px] font-black uppercase px-1.5 py-0.2 rounded border border-red-100">
+                                    S: {item.source}
+                                  </span>
+                                  <span className="bg-blue-50 text-blue-600 text-[6px] font-black uppercase px-1.5 py-0.2 rounded border border-blue-100">
+                                    A: {item.allocation}
+                                  </span>
+                                  {item.isWIP && (
+                                    <span className="bg-amber-100 text-amber-700 text-[6px] font-black px-1.5 py-0.2 rounded">
+                                      WIP
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Item Code & Name */}
+                              <div className="col-span-5 min-w-0 w-full sm:w-auto">
+                                <p className="font-black text-[10px] text-gray-800 uppercase tracking-tight">{item.itemCode}</p>
+                                <p className="text-[8px] font-bold text-gray-400 truncate">{item.itemName}</p>
+                              </div>
+
+                              {/* Qty Pcs */}
+                              <div className="col-span-2 text-left sm:text-right w-full sm:w-auto flex sm:flex-col justify-between sm:justify-center">
+                                <span className="sm:hidden text-[8px] font-black text-gray-400 uppercase">Qty</span>
+                                <span className="font-extrabold text-[11px] text-gray-700">
+                                  {formatNumber(item.pcs, 0)} <span className="text-[8px] text-gray-400 font-bold">Pcs</span>
+                                </span>
+                              </div>
+
+                              {/* Weight Kgs */}
+                              <div className="col-span-2 text-left sm:text-right w-full sm:w-auto flex sm:flex-col justify-between sm:justify-center">
+                                <span className="sm:hidden text-[8px] font-black text-gray-400 uppercase">Weight</span>
+                                <span className="font-extrabold text-[11px] text-gray-700">
+                                  {formatNumber(item.kgs, 2)} <span className="text-[8px] text-gray-400 font-bold">Kg</span>
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-gray-100 bg-white flex justify-end">
+              <button
+                onClick={() => { setIsPDModalOpen(false); setExpandedPD(null); }}
+                className="px-6 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl text-xs font-black transition-all cursor-pointer uppercase tracking-wider"
+              >
+                TUTUP
+              </button>
             </div>
           </div>
         </div>

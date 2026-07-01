@@ -1,7 +1,22 @@
 {
-  "name": "BSI CMS",
-  "description": "Sistem manajemen chiller profesional untuk Bounty Segar Indonesia, mengatur alur masuk dan keluar barang (In/Out) dengan pelaporan mendetail.",
-  "requestFramePermissions": [
-    "camera"
+  "name": "Bounty Segar Indonesia - Chiller Management System",
+  "short_name": "BSI CMS",
+  "description": "Bounty Segar Indonesia - Chiller Management System",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#c01e1e",
+  "theme_color": "#c01e1e",
+  "icons": [
+    {
+      "src": "/BSI PWA.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/BSI PWA.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
   ]
 }
