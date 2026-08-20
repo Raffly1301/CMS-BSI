@@ -15,6 +15,8 @@ import {
 } from 'lucide-react';
 import { formatNumber } from '@/utils';
 
+declare const XLSX: any;
+
 interface ItemDatabaseProps {
   user: User | null;
 }
@@ -25,6 +27,7 @@ const ItemDatabase: React.FC<ItemDatabaseProps> = ({ user }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('ALL');
   const [isAdding, setIsAdding] = useState(false);
+  const [isDownloadingDb, setIsDownloadingDb] = useState(false);
 
   // Form state
   const [newCode, setNewCode] = useState('');
@@ -191,6 +194,65 @@ const ItemDatabase: React.FC<ItemDatabaseProps> = ({ user }) => {
 
   const canManage = user?.role?.toUpperCase() === 'ADMIN' || user?.role?.toUpperCase() === 'SUPERADMIN';
 
+  const downloadFullDatabase = async () => {
+    if (user?.role?.toUpperCase() !== 'SUPERADMIN') {
+      alert('Akses Ditolak: Fitur download database hanya untuk Superadmin.');
+      return;
+    }
+
+    setIsDownloadingDb(true);
+    try {
+      const tablesToExport = ['chiller_stock', 'transactions', 'items', 'users', 'virtual_inventory'];
+      const wb = XLSX.utils.book_new();
+
+      for (const tableName of tablesToExport) {
+        let allRows: any[] = [];
+        let from = 0;
+        const PAGE_SIZE = 1000;
+        let keepGoing = true;
+
+        while (keepGoing) {
+          const { data, error } = await supabase
+            .from(tableName)
+            .select('*')
+            .range(from, from + PAGE_SIZE - 1);
+
+          if (error) {
+            console.error(`Gagal mengambil data dari ${tableName}:`, error);
+            break;
+          }
+
+          if (data && data.length > 0) {
+            allRows = allRows.concat(data);
+            from += PAGE_SIZE;
+            if (data.length < PAGE_SIZE) keepGoing = false;
+          } else {
+            keepGoing = false;
+          }
+        }
+
+        const cleanedRows = allRows.map(row => {
+          if (tableName === 'users' && row.password) {
+            const { password, ...rest } = row;
+            return { ...rest, password: '***' };
+          }
+          return row;
+        });
+
+        const ws = XLSX.utils.json_to_sheet(cleanedRows.length > 0 ? cleanedRows : [{}]);
+        XLSX.utils.book_append_sheet(wb, ws, tableName);
+      }
+
+      const timestamp = new Date().toISOString().slice(0, 10);
+      XLSX.writeFile(wb, `BSI_CMS_Database_Full_${timestamp}.xlsx`);
+    } catch (err: any) {
+      console.error('Error exporting database:', err);
+      alert('Gagal mendownload database: ' + (err.message || 'Error tidak diketahui'));
+    } finally {
+      setIsDownloadingDb(false);
+    }
+  };
+
   if (!canManage) {
     return (
       <div className="h-[60vh] flex flex-col items-center justify-center text-gray-400">
@@ -211,13 +273,31 @@ const ItemDatabase: React.FC<ItemDatabaseProps> = ({ user }) => {
           </h2>
           <p className="text-sm text-gray-500 font-medium">Kelola daftar produk dan kode item sistem</p>
         </div>
-        <button
-          onClick={() => setIsAdding(!isAdding)}
-          className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-xl text-xs font-black transition-all shadow-lg shadow-red-200"
-        >
-          {isAdding ? <Plus className="rotate-45" size={16} /> : <Plus size={16} />}
-          {isAdding ? 'BATAL' : 'TAMBAH ITEM BARU'}
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {user?.role?.toUpperCase() === 'SUPERADMIN' && (
+            <button
+              type="button"
+              onClick={downloadFullDatabase}
+              disabled={isDownloadingDb}
+              className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-xs font-black transition-all shadow-lg shadow-emerald-200 cursor-pointer disabled:opacity-50"
+              title="Download Semua Database Per Kolom (Superadmin Only)"
+            >
+              {isDownloadingDb ? (
+                <Loader2 className="animate-spin" size={16} />
+              ) : (
+                <Database size={16} />
+              )}
+              <span>{isDownloadingDb ? 'DOWNLOADING...' : 'DOWNLOAD ALL DB'}</span>
+            </button>
+          )}
+          <button
+            onClick={() => setIsAdding(!isAdding)}
+            className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-xl text-xs font-black transition-all shadow-lg shadow-red-200 cursor-pointer"
+          >
+            {isAdding ? <Plus className="rotate-45" size={16} /> : <Plus size={16} />}
+            {isAdding ? 'BATAL' : 'TAMBAH ITEM BARU'}
+          </button>
+        </div>
       </header>
 
       {isAdding && (

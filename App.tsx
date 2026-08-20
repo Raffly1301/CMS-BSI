@@ -58,13 +58,38 @@ const App: React.FC = () => {
     let keepGoing = true;
 
     while (keepGoing) {
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from(table)
         .select(selectCols)
         .order(orderCol, { ascending: false })
         .range(from, from + PAGE_SIZE - 1);
 
-      if (error) throw error;
+      if (error && selectCols !== '*') {
+        console.warn(`Fetch error on table '${table}' with columns '${selectCols}', falling back to '*':`, error);
+        const retry1 = await supabase
+          .from(table)
+          .select('*')
+          .order(orderCol, { ascending: false })
+          .range(from, from + PAGE_SIZE - 1);
+        data = retry1.data;
+        error = retry1.error;
+      }
+
+      if (error) {
+        console.warn(`Fetch error on table '${table}' with ordering '${orderCol}', falling back to no order:`, error);
+        const retry2 = await supabase
+          .from(table)
+          .select('*')
+          .range(from, from + PAGE_SIZE - 1);
+        data = retry2.data;
+        error = retry2.error;
+      }
+
+      if (error) {
+        console.error(`Persistent fetch error on table '${table}':`, error);
+        throw error;
+      }
+
       if (data && data.length > 0) {
         allData = allData.concat(data);
         from += PAGE_SIZE;
@@ -79,16 +104,36 @@ const App: React.FC = () => {
   const fetchData = useCallback(async (silent = false) => {
     if (!silent) setIsLoading(true);
     try {
-      const { data: itemsData } = await supabase.from('items').select('id, code, description');
-      if (itemsData) {
-        itemsData.forEach(item => {
-          itemsCache.current[item.id] = { name: item.description, code: item.code };
-        });
+      try {
+        const { data: itemsData, error: itemsError } = await supabase.from('items').select('id, code, description');
+        if (itemsError) {
+          const { data: fallbackItems } = await supabase.from('items').select('*');
+          if (fallbackItems) {
+            fallbackItems.forEach(item => {
+              itemsCache.current[item.id] = { name: item.description || item.name || '', code: item.code || '' };
+            });
+          }
+        } else if (itemsData) {
+          itemsData.forEach(item => {
+            itemsCache.current[item.id] = { name: item.description || '', code: item.code || '' };
+          });
+        }
+      } catch (e) {
+        console.warn("Non-fatal items fetch issue:", e);
       }
 
-      const { data: usersData } = await supabase.from('users').select('id, username');
-      if (usersData) {
-        usersData.forEach(u => { usersCache.current[u.id] = u.username; });
+      try {
+        const { data: usersData, error: usersError } = await supabase.from('users').select('id, username');
+        if (usersError) {
+          const { data: fallbackUsers } = await supabase.from('users').select('*');
+          if (fallbackUsers) {
+            fallbackUsers.forEach(u => { usersCache.current[u.id] = u.username; });
+          }
+        } else if (usersData) {
+          usersData.forEach(u => { usersCache.current[u.id] = u.username; });
+        }
+      } catch (e) {
+        console.warn("Non-fatal users fetch issue:", e);
       }
 
       const [stockData, trxData] = await Promise.all([
@@ -103,9 +148,9 @@ const App: React.FC = () => {
         userId: usersCache.current[item.user_id] || item.user_id,
         type: (item.transaction_type || '').toUpperCase() as any,
         destination: item.destination as OutflowDestination,
-        pcs: Number(item.quantity_pcs),
-        kgs: Number(item.quantity_kgs),
-        timestamp: new Date(item.transaction_time).getTime()
+        pcs: Number(item.quantity_pcs || 0),
+        kgs: Number(item.quantity_kgs || 0),
+        timestamp: item.transaction_time ? new Date(item.transaction_time).getTime() : Date.now()
       }));
 
       const mappedStock: ChillerItem[] = (stockData || []).map(item => {
@@ -118,20 +163,20 @@ const App: React.FC = () => {
           itemsId: item.items_id,
           itemCode: itemsCache.current[item.items_id]?.code || 'N/A',
           itemName: itemsCache.current[item.items_id]?.name || item.items_id,
-          pcs: Number(item.quantity_pcs),
-          kgs: Number(item.quantity_kgs),
+          pcs: Number(item.quantity_pcs || 0),
+          kgs: Number(item.quantity_kgs || 0),
           productionDate: item.production_date,
           slaughteringDate: item.slaughtering_date,
           source: item.source || 'FPS',
           allocation: item.allocation || 'FPS',
-          entryTimestamp: new Date(item.created_at).getTime(),
+          entryTimestamp: item.created_at ? new Date(item.created_at).getTime() : Date.now(),
           exitTimestamp: lastOut ? lastOut.timestamp : undefined,
           status: (
             item.status === 'OUT' || item.status === 'OUT_CHILLER' ? 'OUT_CHILLER' :
               item.status === 'PENDING' || item.status === 'QC_PENDING' ? 'PENDING_QC' :
                 'IN_CHILLER'
           ),
-          isWIP: item.status_WIP === true || item.status_WIP === 'true'
+          isWIP: item.status_WIP === true || item.status_WIP === 'true' || item.status_wip === true || item.status_wip === 'true'
         };
       });
 
@@ -818,7 +863,7 @@ const App: React.FC = () => {
             {activeView === 'DASHBOARD' && <Dashboard items={chillerTable} transactions={transactionTable} onNavigate={setActiveView} />}
             {activeView === 'INFLOW' && <InflowForm onSubmitBatch={handleInflow} />}
             {activeView === 'INVENTORY' && <InventoryList user={user} items={currentInventory} onOut={handleOutflow} onBatchOut={handleBatchOut} onQCApprove={(id) => handleQCAction(id, 'APPROVE')} onQCReject={(id) => handleQCAction(id, 'REJECT')} onRefresh={() => fetchData(true)} />}
-            {activeView === 'REPORTS' && <Reports items={chillerTable} transactions={transactionTable} logs={logTable} users={[user!]} />}
+            {activeView === 'REPORTS' && <Reports items={chillerTable} transactions={transactionTable} logs={logTable} users={[user!]} user={user} />}
             {activeView === 'DAILY_REPORT' && <DailyStockReport items={chillerTable} transactions={transactionTable} user={user} onRefresh={() => fetchData(true)} />}
             {activeView === 'ITEM_DATABASE' && <ItemDatabase user={user} />}
             {activeView === 'VIRTUAL_INVENTORY' && <VirtualInventoryList />}

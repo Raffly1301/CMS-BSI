@@ -2,10 +2,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { VirtualInventory } from '../types';
 import { supabase } from '../lib/supabase';
-import { 
-  Package, 
-  Search, 
-  ArrowRightLeft, 
+import {
+  Package,
+  Search,
+  ArrowRightLeft,
   History,
   TrendingUp,
   TrendingDown,
@@ -36,7 +36,7 @@ const VirtualInventoryList: React.FC = () => {
   const fetchVirtualInventory = async () => {
     setIsLoading(true);
     try {
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from('virtual_inventory')
         .select(`
           *,
@@ -47,7 +47,24 @@ const VirtualInventoryList: React.FC = () => {
         `)
         .order('updated_at', { ascending: false });
 
-      if (error) throw error;
+      if (error) {
+        console.warn("Relational fetch for virtual_inventory failed, falling back to separate queries:", error);
+        const { data: rawVirtual, error: vErr } = await supabase
+          .from('virtual_inventory')
+          .select('*');
+        if (vErr) throw vErr;
+
+        const { data: rawItems } = await supabase.from('items').select('id, code, description');
+        const itemMap: Record<string, { code: string; description: string }> = {};
+        if (rawItems) {
+          rawItems.forEach((i: any) => { itemMap[i.id] = { code: i.code, description: i.description }; });
+        }
+
+        data = (rawVirtual || []).map((v: any) => ({
+          ...v,
+          items: itemMap[v.items_id] ? { code: itemMap[v.items_id].code, description: itemMap[v.items_id].description } : null
+        }));
+      }
 
       if (data) {
         const mappedData = data.map((item: any) => ({
@@ -80,11 +97,11 @@ const VirtualInventoryList: React.FC = () => {
   const filteredAndSortedInventory = useMemo(() => {
     let result = inventory.filter(item => {
       const searchLower = searchQuery.toLowerCase();
-      const matchesSearch = 
+      const matchesSearch =
         item.destination.toLowerCase().includes(searchLower) ||
         (item.item_name || '').toLowerCase().includes(searchLower) ||
         (item.item_code || '').toLowerCase().includes(searchLower);
-      
+
       const matchesDest = filterDestination === 'ALL' || item.destination === filterDestination;
       return matchesSearch && matchesDest;
     });
@@ -125,7 +142,7 @@ const VirtualInventoryList: React.FC = () => {
               <Layers className="text-red-600" />
               Inventory
             </h2>
-            <button 
+            <button
               onClick={fetchVirtualInventory}
               className="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-400 hover:text-red-600"
               title="Refresh Data"
@@ -147,7 +164,7 @@ const VirtualInventoryList: React.FC = () => {
               onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
-          
+
           <div className="relative">
             <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
             <select
@@ -174,7 +191,7 @@ const VirtualInventoryList: React.FC = () => {
             <p className="text-xl font-black text-gray-900 leading-none">{filteredAndSortedInventory.length}</p>
           </div>
         </div>
-        
+
         <div className="bg-white p-4 rounded-2xl shadow-lg shadow-gray-200/40 border border-gray-100 flex items-center gap-4 group hover:scale-[1.01] transition-all duration-300">
           <div className="bg-red-50 w-12 h-12 rounded-xl flex items-center justify-center text-red-600 group-hover:rotate-6 transition-transform">
             <Package size={24} />
@@ -212,7 +229,7 @@ const VirtualInventoryList: React.FC = () => {
           {(Object.entries(summaryByLocation) as [string, { pcs: number, kgs: number, items: number }][]).map(([loc, stats]) => (
             <div key={loc} className="bg-white p-5 rounded-3xl border border-gray-100 shadow-xl shadow-gray-200/50 hover:shadow-red-100/30 transition-all duration-300 group relative overflow-hidden">
               <div className="absolute top-0 right-0 w-24 h-24 bg-red-50/20 rounded-full -mr-12 -mt-12 group-hover:scale-125 transition-transform duration-500" />
-              
+
               <div className="flex items-center justify-between mb-4 relative z-10">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center text-red-600 group-hover:bg-red-600 group-hover:text-white transition-all duration-200 shadow-md shadow-red-50">
@@ -223,13 +240,13 @@ const VirtualInventoryList: React.FC = () => {
                 <div className="text-right">
                   <p className="text-[8px] font-black text-gray-400 uppercase tracking-widest">Update</p>
                   <p className="text-[9px] font-black text-red-600 uppercase bg-red-50 px-1.5 py-0.5 rounded-md">
-                    {inventory.find(i => i.destination === loc)?.updated_at 
+                    {inventory.find(i => i.destination === loc)?.updated_at
                       ? new Date(inventory.find(i => i.destination === loc)!.updated_at).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' })
                       : '-'}
                   </p>
                 </div>
               </div>
-              
+
               <div className="grid grid-cols-2 gap-3 relative z-10">
                 <div className="bg-gray-50/60 p-3 rounded-2xl border border-gray-100 group-hover:bg-white group-hover:border-red-50 transition-all">
                   <p className="text-[8px] font-black text-gray-400 uppercase tracking-widest mb-1">Quantity</p>
@@ -272,13 +289,13 @@ const VirtualInventoryList: React.FC = () => {
             {filteredAndSortedInventory.length} Baris
           </span>
         </div>
-        
+
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-gray-50/50">
                 <th className="px-6 py-4">
-                  <button 
+                  <button
                     onClick={() => handleSort('item_code')}
                     className="flex items-center gap-2 text-[10px] font-black text-gray-400 uppercase tracking-widest hover:text-red-600 transition-colors"
                   >
@@ -287,7 +304,7 @@ const VirtualInventoryList: React.FC = () => {
                   </button>
                 </th>
                 <th className="px-6 py-4">
-                  <button 
+                  <button
                     onClick={() => handleSort('item_name')}
                     className="flex items-center gap-2 text-[10px] font-black text-gray-400 uppercase tracking-widest hover:text-red-600 transition-colors"
                   >
@@ -296,7 +313,7 @@ const VirtualInventoryList: React.FC = () => {
                   </button>
                 </th>
                 <th className="px-6 py-4">
-                  <button 
+                  <button
                     onClick={() => handleSort('destination')}
                     className="flex items-center gap-2 text-[10px] font-black text-gray-400 uppercase tracking-widest hover:text-red-600 transition-colors"
                   >
@@ -305,7 +322,7 @@ const VirtualInventoryList: React.FC = () => {
                   </button>
                 </th>
                 <th className="px-6 py-4">
-                  <button 
+                  <button
                     onClick={() => handleSort('quantity_pcs')}
                     className="flex items-center gap-2 text-[10px] font-black text-gray-400 uppercase tracking-widest hover:text-red-600 transition-colors"
                   >
@@ -314,7 +331,7 @@ const VirtualInventoryList: React.FC = () => {
                   </button>
                 </th>
                 <th className="px-6 py-4">
-                  <button 
+                  <button
                     onClick={() => handleSort('quantity_kgs')}
                     className="flex items-center gap-2 text-[10px] font-black text-gray-400 uppercase tracking-widest hover:text-red-600 transition-colors"
                   >
@@ -323,7 +340,7 @@ const VirtualInventoryList: React.FC = () => {
                   </button>
                 </th>
                 <th className="px-6 py-4">
-                  <button 
+                  <button
                     onClick={() => handleSort('updated_at')}
                     className="flex items-center gap-2 text-[10px] font-black text-gray-400 uppercase tracking-widest hover:text-red-600 transition-colors"
                   >
@@ -359,11 +376,11 @@ const VirtualInventoryList: React.FC = () => {
                     <div className="flex items-center gap-2 text-gray-400">
                       <Clock size={12} />
                       <span className="text-[10px] font-bold">
-                        {new Date(item.updated_at).toLocaleString('id-ID', { 
-                          day: '2-digit', 
-                          month: 'short', 
-                          hour: '2-digit', 
-                          minute: '2-digit' 
+                        {new Date(item.updated_at).toLocaleString('id-ID', {
+                          day: '2-digit',
+                          month: 'short',
+                          hour: '2-digit',
+                          minute: '2-digit'
                         })}
                       </span>
                     </div>

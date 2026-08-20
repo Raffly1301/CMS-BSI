@@ -97,11 +97,18 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
 
   useEffect(() => {
     const fetchMasterItems = async () => {
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from('items')
         .select('id, code, description')
         .eq('is_active', true)
         .order('code', { ascending: true });
+
+      if (error) {
+        const retry = await supabase.from('items').select('*');
+        data = retry.data;
+        error = retry.error;
+      }
+
       if (!error && data) {
         setItemsList(data);
       }

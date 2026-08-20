@@ -16,15 +16,17 @@ import {
 } from 'lucide-react';
 
 declare const html2pdf: any;
+declare const XLSX: any;
 
 interface ReportsProps {
   items: ChillerItem[];
   transactions: Transaction[];
   logs: SystemLog[];
   users: User[];
+  user?: User | null;
 }
 
-const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users }) => {
+const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users, user }) => {
   const [tab, setTab] = useState<'TRANSACTIONS' | 'LOGS' | 'STOCK_CARD' | 'ALLOCATION'>('TRANSACTIONS');
   const [isExporting, setIsExporting] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
