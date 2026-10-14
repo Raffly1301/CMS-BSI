@@ -40,8 +40,14 @@ const App: React.FC = () => {
   const [activeView, setActiveView] = useState<ViewState>('DASHBOARD');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
   const [isAboutOpen, setIsAboutOpen] = useState(false);
+
+  // Per-resource loading & loaded states for efficient on-demand menu loading
+  const [stockLoaded, setStockLoaded] = useState(false);
+  const [stockLoading, setStockLoading] = useState(false);
+  const [trxLoaded, setTrxLoaded] = useState(false);
+  const [trxLoading, setTrxLoading] = useState(false);
+  const [isActionLoading, setIsActionLoading] = useState(false);
 
   const [chillerTable, setChillerTable] = useState<ChillerItem[]>([]);
   const [transactionTable, setTransactionTable] = useState<Transaction[]>([]);
@@ -49,6 +55,10 @@ const App: React.FC = () => {
 
   const itemsCache = useRef<Record<string, { name: string, code: string }>>({});
   const usersCache = useRef<Record<string, string>>({});
+  const stockLoadedRef = useRef(false);
+  stockLoadedRef.current = stockLoaded;
+  const trxLoadedRef = useRef(false);
+  trxLoadedRef.current = trxLoaded;
 
   // Helper: fetch ALL rows from a Supabase table using pagination with specific column selections
   const fetchAllRows = useCallback(async (table: string, orderCol: string, selectCols = '*') => {
@@ -101,47 +111,96 @@ const App: React.FC = () => {
     return allData;
   }, []);
 
-  const fetchData = useCallback(async (silent = false) => {
-    if (!silent) setIsLoading(true);
+  const fetchLookups = useCallback(async () => {
+    if (Object.keys(itemsCache.current).length > 0 && Object.keys(usersCache.current).length > 0) {
+      return;
+    }
     try {
-      try {
-        const { data: itemsData, error: itemsError } = await supabase.from('items').select('id, code, description');
-        if (itemsError) {
-          const { data: fallbackItems } = await supabase.from('items').select('*');
-          if (fallbackItems) {
-            fallbackItems.forEach(item => {
-              itemsCache.current[item.id] = { name: item.description || item.name || '', code: item.code || '' };
-            });
-          }
-        } else if (itemsData) {
-          itemsData.forEach(item => {
-            itemsCache.current[item.id] = { name: item.description || '', code: item.code || '' };
-          });
-        }
-      } catch (e) {
-        console.warn("Non-fatal items fetch issue:", e);
-      }
-
-      try {
-        const { data: usersData, error: usersError } = await supabase.from('users').select('id, username');
-        if (usersError) {
-          const { data: fallbackUsers } = await supabase.from('users').select('*');
-          if (fallbackUsers) {
-            fallbackUsers.forEach(u => { usersCache.current[u.id] = u.username; });
-          }
-        } else if (usersData) {
-          usersData.forEach(u => { usersCache.current[u.id] = u.username; });
-        }
-      } catch (e) {
-        console.warn("Non-fatal users fetch issue:", e);
-      }
-
-      const [stockData, trxData] = await Promise.all([
-        fetchAllRows('chiller_stock', 'created_at', 'id,batch_id,items_id,quantity_pcs,quantity_kgs,production_date,slaughtering_date,source,allocation,created_at,status,status_WIP'),
-        fetchAllRows('transactions', 'transaction_time', 'id,batch_id,note,quantity_pcs,quantity_kgs,transaction_type,destination,user_id,transaction_time')
+      const [itemsRes, usersRes] = await Promise.all([
+        supabase.from('items').select('id, code, description'),
+        supabase.from('users').select('id, username')
       ]);
 
-      const mappedTrx: Transaction[] = (trxData || []).map(item => ({
+      if (itemsRes.error) {
+        const { data: fallbackItems } = await supabase.from('items').select('*');
+        if (fallbackItems) {
+          fallbackItems.forEach((item: any) => {
+            itemsCache.current[item.id] = { name: item.description || item.name || '', code: item.code || '' };
+          });
+        }
+      } else if (itemsRes.data) {
+        itemsRes.data.forEach((item: any) => {
+          itemsCache.current[item.id] = { name: item.description || '', code: item.code || '' };
+        });
+      }
+
+      if (usersRes.error) {
+        const { data: fallbackUsers } = await supabase.from('users').select('*');
+        if (fallbackUsers) {
+          fallbackUsers.forEach((u: any) => { usersCache.current[u.id] = u.username; });
+        }
+      } else if (usersRes.data) {
+        usersRes.data.forEach((u: any) => { usersCache.current[u.id] = u.username; });
+      }
+    } catch (e) {
+      console.warn("Non-fatal lookups fetch issue:", e);
+    }
+  }, []);
+
+  // Fetch only chiller stock (used by Stok Chiller, Dashboard, Laporan, Stok Harian)
+  const fetchStock = useCallback(async (silent = false) => {
+    if (!silent) setStockLoading(true);
+    try {
+      await fetchLookups();
+      const stockData = await fetchAllRows(
+        'chiller_stock',
+        'created_at',
+        'id,batch_id,items_id,quantity_pcs,quantity_kgs,production_date,slaughtering_date,source,allocation,created_at,status,status_WIP'
+      );
+
+      const mappedStock: ChillerItem[] = (stockData || []).map((item: any) => ({
+        id: item.id ? String(item.id) : String(item.batch_id),
+        batchId: item.batch_id,
+        itemsId: item.items_id,
+        itemCode: itemsCache.current[item.items_id]?.code || 'N/A',
+        itemName: itemsCache.current[item.items_id]?.name || item.items_id,
+        pcs: Number(item.quantity_pcs || 0),
+        kgs: Number(item.quantity_kgs || 0),
+        productionDate: item.production_date,
+        slaughteringDate: item.slaughtering_date,
+        source: item.source || 'FPS',
+        allocation: item.allocation || 'FPS',
+        entryTimestamp: item.created_at ? new Date(item.created_at).getTime() : Date.now(),
+        exitTimestamp: undefined,
+        status: (
+          item.status === 'OUT' || item.status === 'OUT_CHILLER' ? 'OUT_CHILLER' :
+            item.status === 'PENDING' || item.status === 'QC_PENDING' ? 'PENDING_QC' :
+              'IN_CHILLER'
+        ),
+        isWIP: item.status_WIP === true || item.status_WIP === 'true' || item.status_wip === true || item.status_wip === 'true'
+      }));
+
+      setChillerTable(mappedStock);
+      setStockLoaded(true);
+    } catch (err) {
+      console.error("Stock Fetch Error:", err);
+    } finally {
+      if (!silent) setStockLoading(false);
+    }
+  }, [fetchAllRows, fetchLookups]);
+
+  // Fetch only transactions (used by Dashboard, Laporan & Log, Stok Harian)
+  const fetchTransactions = useCallback(async (silent = false) => {
+    if (!silent) setTrxLoading(true);
+    try {
+      await fetchLookups();
+      const trxData = await fetchAllRows(
+        'transactions',
+        'transaction_time',
+        'id,batch_id,note,quantity_pcs,quantity_kgs,transaction_type,destination,user_id,transaction_time'
+      );
+
+      const mappedTrx: Transaction[] = (trxData || []).map((item: any) => ({
         id: String(item.id),
         chillerId: String(item.batch_id || 'N/A'),
         itemCode: item.note || undefined,
@@ -153,38 +212,9 @@ const App: React.FC = () => {
         timestamp: item.transaction_time ? new Date(item.transaction_time).getTime() : Date.now()
       }));
 
-      const mappedStock: ChillerItem[] = (stockData || []).map(item => {
-        const batchId = item.batch_id;
-        const lastOut = mappedTrx.find(t => t.chillerId === batchId && t.type === 'OUT');
-
-        return {
-          id: item.id ? String(item.id) : String(item.batch_id),
-          batchId: item.batch_id,
-          itemsId: item.items_id,
-          itemCode: itemsCache.current[item.items_id]?.code || 'N/A',
-          itemName: itemsCache.current[item.items_id]?.name || item.items_id,
-          pcs: Number(item.quantity_pcs || 0),
-          kgs: Number(item.quantity_kgs || 0),
-          productionDate: item.production_date,
-          slaughteringDate: item.slaughtering_date,
-          source: item.source || 'FPS',
-          allocation: item.allocation || 'FPS',
-          entryTimestamp: item.created_at ? new Date(item.created_at).getTime() : Date.now(),
-          exitTimestamp: lastOut ? lastOut.timestamp : undefined,
-          status: (
-            item.status === 'OUT' || item.status === 'OUT_CHILLER' ? 'OUT_CHILLER' :
-              item.status === 'PENDING' || item.status === 'QC_PENDING' ? 'PENDING_QC' :
-                'IN_CHILLER'
-          ),
-          isWIP: item.status_WIP === true || item.status_WIP === 'true' || item.status_wip === true || item.status_wip === 'true'
-        };
-      });
-
-      // Heal missing 'IN' transactions dynamically!
-      // If a batch from chiller stock doesn't have an 'IN' transaction, reconstruct its quantity
-      // based on its current stock level plus any outflows that have been executed on it.
+      // Dynamically heal missing 'IN' transactions for batches with outflow
       const synthesizedTrxs: Transaction[] = [];
-      mappedStock.forEach(stockItem => {
+      chillerTable.forEach(stockItem => {
         const hasIn = mappedTrx.some(t => t.chillerId === stockItem.batchId && t.type === 'IN');
         if (!hasIn) {
           const outTrxsForBatch = mappedTrx.filter(t => t.chillerId === stockItem.batchId && t.type === 'OUT');
@@ -210,8 +240,6 @@ const App: React.FC = () => {
       });
 
       const finalTrx = [...mappedTrx, ...synthesizedTrxs];
-
-      setChillerTable(mappedStock);
       setTransactionTable(finalTrx);
       setLogTable(finalTrx.map(t => ({
         id: `LOG-${t.id}`,
@@ -220,42 +248,89 @@ const App: React.FC = () => {
         details: `${t.type} untuk Batch ${t.chillerId} (${t.pcs} Pcs / ${t.kgs.toFixed(2)} Kg)`,
         timestamp: t.timestamp
       })));
+      setTrxLoaded(true);
     } catch (err) {
-      console.error("Fetch Error:", err);
+      console.error("Transactions Fetch Error:", err);
     } finally {
-      if (!silent) setIsLoading(false);
+      if (!silent) setTrxLoading(false);
     }
-  }, [fetchAllRows]);
+  }, [fetchAllRows, fetchLookups, chillerTable]);
 
-  const fetchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const fetchData = useCallback(async (silent = false) => {
+    await Promise.all([fetchStock(silent), fetchTransactions(silent)]);
+  }, [fetchStock, fetchTransactions]);
 
-  const debouncedFetchData = useCallback((silent = false) => {
-    if (fetchTimeoutRef.current) {
-      clearTimeout(fetchTimeoutRef.current);
-    }
-    fetchTimeoutRef.current = setTimeout(() => {
-      fetchData(silent);
+  const stockTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const trxTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const debouncedFetchStock = useCallback((silent = true) => {
+    if (stockTimeoutRef.current) clearTimeout(stockTimeoutRef.current);
+    stockTimeoutRef.current = setTimeout(() => {
+      fetchStock(silent);
     }, 1200);
-  }, [fetchData]);
+  }, [fetchStock]);
+
+  const debouncedFetchTrx = useCallback((silent = true) => {
+    if (trxTimeoutRef.current) clearTimeout(trxTimeoutRef.current);
+    trxTimeoutRef.current = setTimeout(() => {
+      fetchTransactions(silent);
+    }, 1200);
+  }, [fetchTransactions]);
 
   useEffect(() => {
     return () => {
-      if (fetchTimeoutRef.current) {
-        clearTimeout(fetchTimeoutRef.current);
-      }
+      if (stockTimeoutRef.current) clearTimeout(stockTimeoutRef.current);
+      if (trxTimeoutRef.current) clearTimeout(trxTimeoutRef.current);
     };
   }, []);
 
+  // EFFICIENT ON-DEMAND LOADING:
+  // Only load the exact tables required for the currently active menu!
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    // Menus that are completely independent and require NO stock or transactions
+    if (activeView === 'INFLOW' || activeView === 'ITEM_DATABASE' || activeView === 'VIRTUAL_INVENTORY') {
+      return;
+    }
+
+    // "Stok Chiller" only needs chiller stock (no transactions needed!)
+    if (activeView === 'INVENTORY') {
+      if (!stockLoadedRef.current) {
+        fetchStock();
+      }
+      return;
+    }
+
+    // Views that require both stock and transactions
+    if (activeView === 'DASHBOARD' || activeView === 'REPORTS' || activeView === 'DAILY_REPORT') {
+      if (!stockLoadedRef.current) {
+        fetchStock();
+      }
+      if (!trxLoadedRef.current) {
+        fetchTransactions();
+      }
+    }
+  }, [activeView, isAuthenticated, fetchStock, fetchTransactions]);
+
+  // Real-time synchronization only for data that has already been loaded by the user
   useEffect(() => {
     if (isAuthenticated) {
-      fetchData();
       const channel = supabase.channel('bsi-realtime')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'chiller_stock' }, () => debouncedFetchData(true))
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, () => debouncedFetchData(true))
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'chiller_stock' }, () => {
+          if (stockLoadedRef.current) {
+            debouncedFetchStock(true);
+          }
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, () => {
+          if (trxLoadedRef.current) {
+            debouncedFetchTrx(true);
+          }
+        })
         .subscribe();
       return () => { supabase.removeChannel(channel); };
     }
-  }, [isAuthenticated, fetchData, debouncedFetchData]);
+  }, [isAuthenticated, debouncedFetchStock, debouncedFetchTrx]);
 
   const updateVirtualStock = async (destination: string, itemsId: string, pcs: number, kgs: number, type: 'ADD' | 'SUBTRACT') => {
     try {
@@ -316,7 +391,7 @@ const App: React.FC = () => {
 
   const handleInflow = async (newItems: Omit<ChillerItem, 'id' | 'batchId' | 'entryTimestamp' | 'status' | 'itemCode'>[]) => {
     if (!user) return;
-    setIsLoading(true);
+    setIsActionLoading(true);
     let successCount = 0;
     let failCount = 0;
     let lastErrorMsg = "";
@@ -329,13 +404,43 @@ const App: React.FC = () => {
         return usedBatchIdsMap.get(datePart)!;
       }
       const set = new Set<string>();
+
+      // Seed from in-memory chiller table & transactions
+      chillerTable.forEach(row => {
+        if (row.batchId && row.batchId.includes(datePart)) {
+          set.add(row.batchId);
+        }
+      });
+      transactionTable.forEach(row => {
+        if (row.chillerId && row.chillerId.includes(datePart)) {
+          set.add(row.chillerId);
+        }
+      });
+
+      // Fetch all from Supabase with pagination so we don't get capped by default 1000 limit
       try {
-        const { data, error } = await supabase
-          .from('chiller_stock')
-          .select('batch_id')
-          .like('batch_id', `BSI-${datePart}-%`);
-        if (!error && data) {
-          data.forEach(row => set.add(row.batch_id));
+        let from = 0;
+        const PAGE_SIZE = 1000;
+        let keepGoing = true;
+        while (keepGoing) {
+          const { data, error } = await supabase
+            .from('chiller_stock')
+            .select('batch_id')
+            .like('batch_id', `BSI-%${datePart}-%`)
+            .range(from, from + PAGE_SIZE - 1);
+
+          if (error) {
+            console.error("Error fetching existing batch ids:", error);
+            keepGoing = false;
+          } else if (data && data.length > 0) {
+            data.forEach((row: any) => {
+              if (row.batch_id) set.add(row.batch_id);
+            });
+            from += PAGE_SIZE;
+            if (data.length < PAGE_SIZE) keepGoing = false;
+          } else {
+            keepGoing = false;
+          }
         }
       } catch (e) {
         console.error("Error fetching existing batch ids:", e);
@@ -344,9 +449,41 @@ const App: React.FC = () => {
       return set;
     };
 
+    const generateUniqueBatchId = (datePart: string, existingSet: Set<string>): string => {
+      // 1. Try 4-digit random numbers (1000-9999) - 9000 combinations
+      for (let attempt = 0; attempt < 250; attempt++) {
+        const rand = Math.floor(1000 + Math.random() * 9000);
+        const candidate = `BSI-${datePart}-${rand}`;
+        if (!existingSet.has(candidate)) {
+          return candidate;
+        }
+      }
+
+      // 2. Try 5-digit random numbers (10000-99999) - 90000 combinations
+      for (let attempt = 0; attempt < 250; attempt++) {
+        const rand = Math.floor(10000 + Math.random() * 90000);
+        const candidate = `BSI-${datePart}-${rand}`;
+        if (!existingSet.has(candidate)) {
+          return candidate;
+        }
+      }
+
+      // 3. Fallback sequential increment guaranteed to find an unused number
+      let seq = existingSet.size + 1;
+      while (true) {
+        const candidate = `BSI-${datePart}-${seq}`;
+        if (!existingSet.has(candidate)) {
+          return candidate;
+        }
+        seq++;
+      }
+    };
+
     for (const item of newItems) {
       const formatDateForBatch = (d: string) => {
+        if (!d) return '';
         const parts = d.split('-');
+        if (parts.length < 3) return d.replace(/[^0-9]/g, '');
         return parts[2] + parts[1] + parts[0].slice(-2);
       };
 
@@ -355,72 +492,90 @@ const App: React.FC = () => {
       const datePart = pdFmt === sdFmt ? pdFmt : `${pdFmt}${sdFmt}`;
 
       const existingSet = await getExistingBatchIds(datePart);
-      let batchId = "";
-      let attempts = 0;
-      do {
-        let suffix = "";
-        if (attempts < 50) {
-          suffix = String(Math.floor(Math.random() * 900 + 100)); // 100-999
-        } else {
-          suffix = String(Math.floor(Math.random() * 9000 + 1000)); // 1000-9999
-        }
-        batchId = `BSI-${datePart}-${suffix}`;
-        attempts++;
-      } while (existingSet.has(batchId) && attempts < 100);
-
-      existingSet.add(batchId);
       const currentItemCode = itemsCache.current[item.itemsId]?.code || 'N/A';
 
-      try {
-        const { error: stockErr } = await supabase.from('chiller_stock').insert({
-          batch_id: batchId,
-          items_id: item.itemsId,
-          quantity_pcs: item.pcs,
-          quantity_kgs: item.kgs,
-          production_date: item.productionDate,
-          slaughtering_date: item.slaughteringDate,
-          status: 'IN',
-          created_by: user.id,
-          source: item.source,
-          allocation: item.allocation,
-          status_WIP: item.isWIP || false
-        });
-        if (stockErr) throw stockErr;
+      let itemSaved = false;
+      let retries = 0;
+      const MAX_RETRIES = 5;
 
-        const { error: trxErr } = await supabase.from('transactions').insert({
-          batch_id: batchId,
-          note: currentItemCode,
-          destination: 'Chiller',
-          quantity_pcs: item.pcs,
-          quantity_kgs: item.kgs,
-          transaction_type: 'in',
-          user_id: user.id,
-          transaction_time: new Date().toISOString()
-        });
-        if (trxErr) throw trxErr;
+      while (!itemSaved && retries < MAX_RETRIES) {
+        const batchId = generateUniqueBatchId(datePart, existingSet);
+        existingSet.add(batchId);
 
-        // Virtual Inventory Update: If source is a virtual location, subtract from it
-        const sourceToDestMap: Record<string, string> = {
-          'PARTING': 'Parting',
-          'MARINASI': 'Marinasi',
-          'BONELESS': 'Boneless',
-          'RETUR': 'Retur',
-          'THOWING': 'Thowing',
-          'FPS': 'FPS',
-          'SMS': 'SMS',
-          'IQF': 'IQF',
-          'CS': 'CS'
-        };
+        try {
+          const { error: stockErr } = await supabase.from('chiller_stock').insert({
+            batch_id: batchId,
+            items_id: item.itemsId,
+            quantity_pcs: item.pcs,
+            quantity_kgs: item.kgs,
+            production_date: item.productionDate,
+            slaughtering_date: item.slaughteringDate,
+            status: 'IN',
+            created_by: user.id,
+            source: item.source,
+            allocation: item.allocation,
+            status_WIP: item.isWIP || false
+          });
 
-        const mappedSource = sourceToDestMap[item.source.toUpperCase()];
-        if (mappedSource) {
-          await updateVirtualStock(mappedSource, item.itemsId, item.pcs, item.kgs, 'SUBTRACT');
+          if (stockErr) {
+            // Check for duplicate key / unique constraint violation
+            const isDuplicate = stockErr.code === '23505' ||
+              stockErr.message?.toLowerCase().includes('unique') ||
+              stockErr.message?.toLowerCase().includes('duplicate') ||
+              stockErr.details?.toLowerCase().includes('already exists');
+
+            if (isDuplicate) {
+              console.warn(`Duplicate key detected for batch_id ${batchId}, regenerating new batch ID and retrying...`);
+              retries++;
+              await new Promise(res => setTimeout(res, 50 * retries));
+              continue;
+            }
+            throw stockErr;
+          }
+
+          const { error: trxErr } = await supabase.from('transactions').insert({
+            batch_id: batchId,
+            note: currentItemCode,
+            destination: 'Chiller',
+            quantity_pcs: item.pcs,
+            quantity_kgs: item.kgs,
+            transaction_type: 'in',
+            user_id: user.id,
+            transaction_time: new Date().toISOString()
+          });
+          if (trxErr) throw trxErr;
+
+          // Virtual Inventory Update: If source is a virtual location, subtract from it
+          const sourceToDestMap: Record<string, string> = {
+            'PARTING': 'Parting',
+            'MARINASI': 'Marinasi',
+            'BONELESS': 'Boneless',
+            'RETUR': 'Retur',
+            'THOWING': 'Thowing',
+            'FPS': 'FPS',
+            'SMS': 'SMS',
+            'IQF': 'IQF',
+            'CS': 'CS'
+          };
+
+          const mappedSource = sourceToDestMap[item.source.toUpperCase()];
+          if (mappedSource) {
+            await updateVirtualStock(mappedSource, item.itemsId, item.pcs, item.kgs, 'SUBTRACT');
+          }
+
+          itemSaved = true;
+          successCount++;
+        } catch (err: any) {
+          console.error("Inflow Error:", err);
+          failCount++;
+          lastErrorMsg = err?.message || String(err);
+          break;
         }
-        successCount++;
-      } catch (err: any) {
-        console.error("Inflow Error:", err);
+      }
+
+      if (!itemSaved && retries >= MAX_RETRIES) {
         failCount++;
-        lastErrorMsg = err?.message || String(err);
+        lastErrorMsg = `Gagal mendapatkan ID batch unik setelah ${MAX_RETRIES} percobaan.`;
       }
     }
 
@@ -428,17 +583,17 @@ const App: React.FC = () => {
       alert(`Gagal menyimpan ${failCount} item dari total ${newItems.length} item. Error: ${lastErrorMsg}`);
     }
 
-    await fetchData(true);
-    setIsLoading(false);
+    await fetchStock(true);
+    setIsActionLoading(false);
     setActiveView('INVENTORY');
   };
 
   const handleOutflow = async (id: string, destination: OutflowDestination, outPcs?: number, outKgs?: number, skipLoading = false) => {
     if (!user) return;
-    if (!skipLoading) setIsLoading(true);
+    if (!skipLoading) setIsActionLoading(true);
     const item = chillerTable.find(i => i.id === id);
     if (!item) {
-      if (!skipLoading) setIsLoading(false);
+      if (!skipLoading) setIsActionLoading(false);
       return;
     }
 
@@ -466,12 +621,13 @@ const App: React.FC = () => {
         });
         if (trxErr) throw trxErr;
 
-        await fetchData(true);
+        await fetchStock(true);
+        if (trxLoadedRef.current) await fetchTransactions(true);
       } catch (err: any) {
         console.error("Condem Request Error:", err);
         alert(`Gagal mengajukan Condem: ${err?.message || err}`);
       } finally {
-        if (!skipLoading) setIsLoading(false);
+        if (!skipLoading) setIsActionLoading(false);
       }
       return;
     }
@@ -514,18 +670,19 @@ const App: React.FC = () => {
         await updateVirtualStock(destination, item.itemsId, actualPcs, actualKgs, 'ADD');
       }
 
-      await fetchData(true);
+      await fetchStock(true);
+      if (trxLoadedRef.current) await fetchTransactions(true);
     } catch (err: any) {
       console.error("Outflow Error:", err);
       alert(`Gagal memproses pengeluaran stok: ${err?.message || err}`);
     } finally {
-      if (!skipLoading) setIsLoading(false);
+      if (!skipLoading) setIsActionLoading(false);
     }
   };
 
   const handleBatchOut = async (ids: string[], destination: OutflowDestination) => {
     if (!user) return;
-    setIsLoading(true);
+    setIsActionLoading(true);
     let successCount = 0;
     let failCount = 0;
     let lastErrorMsg = "";
@@ -594,8 +751,9 @@ const App: React.FC = () => {
       alert(`Gagal memproses total ${failCount} item dari total batch ${ids.length} item. Error: ${lastErrorMsg}`);
     }
 
-    await fetchData(true);
-    setIsLoading(false);
+    await fetchStock(true);
+    if (trxLoadedRef.current) await fetchTransactions(true);
+    setIsActionLoading(false);
   };
 
   const handleQCAction = async (id: string, action: 'APPROVE' | 'REJECT') => {
@@ -604,7 +762,7 @@ const App: React.FC = () => {
     const item = chillerTable.find(i => i.id === id);
     if (!item) return;
 
-    setIsLoading(true);
+    setIsActionLoading(true);
     try {
       const { data: trxList } = await supabase
         .from('transactions')
@@ -678,12 +836,13 @@ const App: React.FC = () => {
         if (trxErr) throw trxErr;
       }
 
-      await fetchData(true);
+      await fetchStock(true);
+      if (trxLoadedRef.current) await fetchTransactions(true);
     } catch (err: any) {
       console.error("QC Action Error:", err);
       alert(`Gagal memproses tindakan QC: ${err?.message || err}`);
     } finally {
-      setIsLoading(false);
+      setIsActionLoading(false);
     }
   };
 
@@ -692,7 +851,8 @@ const App: React.FC = () => {
     setUser(u);
     localStorage.setItem('bsi_auth', 'true');
     localStorage.setItem('bsi_user', JSON.stringify(u));
-    fetchData();
+    setStockLoaded(false);
+    setTrxLoaded(false);
   };
 
   const handleLogout = () => {
@@ -700,11 +860,42 @@ const App: React.FC = () => {
     setUser(null);
     localStorage.removeItem('bsi_auth');
     localStorage.removeItem('bsi_user');
+    setStockLoaded(false);
+    setTrxLoaded(false);
   };
 
   const currentInventory = useMemo(() =>
     chillerTable.filter(item => item.status === 'IN_CHILLER' || item.status === 'PENDING_QC'),
     [chillerTable]);
+
+  // Determine whether the currently selected menu is still loading its required data
+  const isViewLoading = useMemo(() => {
+    if (activeView === 'INFLOW' || activeView === 'ITEM_DATABASE' || activeView === 'VIRTUAL_INVENTORY') {
+      return false;
+    }
+    if (activeView === 'INVENTORY') {
+      return !stockLoaded;
+    }
+    if (activeView === 'DASHBOARD' || activeView === 'REPORTS' || activeView === 'DAILY_REPORT') {
+      return !stockLoaded || !trxLoaded;
+    }
+    return false;
+  }, [activeView, stockLoaded, trxLoaded]);
+
+  const viewLoadingLabel = useMemo(() => {
+    switch (activeView) {
+      case 'INVENTORY':
+        return 'Memuat Stok Chiller...';
+      case 'DASHBOARD':
+        return 'Memuat Data Dashboard...';
+      case 'REPORTS':
+        return 'Memuat Laporan & Log...';
+      case 'DAILY_REPORT':
+        return 'Memuat Stok Harian...';
+      default:
+        return 'Memuat Data...';
+    }
+  }, [activeView]);
 
   const navigation = [
     { name: 'Dashboard', view: 'DASHBOARD' as ViewState, icon: LayoutDashboard },
@@ -853,16 +1044,16 @@ const App: React.FC = () => {
       </aside>
 
       <main className="flex-1 h-screen overflow-y-auto p-4 md:p-8 bg-gray-50">
-        {isLoading ? (
-          <div className="h-full flex flex-col items-center justify-center text-gray-400 gap-4">
+        {isViewLoading ? (
+          <div className="h-full flex flex-col items-center justify-center text-gray-400 gap-4 min-h-[400px]">
             <div className="w-12 h-12 border-4 border-red-100 border-t-red-600 rounded-full animate-spin"></div>
-            <span className="text-[10px] font-black uppercase tracking-[0.3em]">Meyinkronkan Data...</span>
+            <span className="text-[10px] font-black uppercase tracking-[0.3em]">{viewLoadingLabel}</span>
           </div>
         ) : (
           <div className="max-w-7xl mx-auto pb-20 md:pb-0">
             {activeView === 'DASHBOARD' && <Dashboard items={chillerTable} transactions={transactionTable} onNavigate={setActiveView} />}
             {activeView === 'INFLOW' && <InflowForm onSubmitBatch={handleInflow} />}
-            {activeView === 'INVENTORY' && <InventoryList user={user} items={currentInventory} onOut={handleOutflow} onBatchOut={handleBatchOut} onQCApprove={(id) => handleQCAction(id, 'APPROVE')} onQCReject={(id) => handleQCAction(id, 'REJECT')} onRefresh={() => fetchData(true)} />}
+            {activeView === 'INVENTORY' && <InventoryList user={user} items={currentInventory} onOut={handleOutflow} onBatchOut={handleBatchOut} onQCApprove={(id) => handleQCAction(id, 'APPROVE')} onQCReject={(id) => handleQCAction(id, 'REJECT')} onRefresh={() => fetchStock(true)} />}
             {activeView === 'REPORTS' && <Reports items={chillerTable} transactions={transactionTable} logs={logTable} users={[user!]} user={user} />}
             {activeView === 'DAILY_REPORT' && <DailyStockReport items={chillerTable} transactions={transactionTable} user={user} onRefresh={() => fetchData(true)} />}
             {activeView === 'ITEM_DATABASE' && <ItemDatabase user={user} />}
@@ -870,6 +1061,14 @@ const App: React.FC = () => {
           </div>
         )}
       </main>
+
+      {/* Action Processing Overlay (only during mutations) */}
+      {isActionLoading && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-[2px] z-[100] flex flex-col items-center justify-center text-white gap-3 animate-in fade-in duration-200">
+          <div className="w-10 h-10 border-4 border-white/30 border-t-white rounded-full animate-spin"></div>
+          <span className="text-xs font-black uppercase tracking-widest">Memproses Data...</span>
+        </div>
+      )}
 
       {/* About Modal */}
       {isAboutOpen && (
