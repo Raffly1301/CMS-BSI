@@ -35,6 +35,7 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users, use
   const [filterEndDate, setFilterEndDate] = useState('');
   const [selectedItemCode, setSelectedItemCode] = useState<string>('');
   const [filterDestination, setFilterDestination] = useState<string>('ALL');
+  const [filterSource, setFilterSource] = useState<string>('ALL');
   const [filterPD, setFilterPD] = useState<string>('');
   const [trxViewMode, setTrxViewMode] = useState<'BATCH' | 'ITEM'>('BATCH');
 
@@ -47,7 +48,7 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users, use
   React.useEffect(() => {
     setTrxPage(1);
     setLogsPage(1);
-  }, [searchTerm, filterType, filterStartDate, filterEndDate, filterDestination, filterPD, tab, trxViewMode]);
+  }, [searchTerm, filterType, filterStartDate, filterEndDate, filterDestination, filterSource, filterPD, tab, trxViewMode]);
 
   // Fast O(1) item lookup by batchId/chillerId to avoid nested O(N*T) array scans
   const itemsByBatchId = useMemo(() => {
@@ -153,13 +154,17 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users, use
         filterDestination === 'ALL' ||
         (t.type === 'OUT' && t.destination === filterDestination);
 
+      const matchesSource =
+        filterSource === 'ALL' ||
+        (item?.source?.toUpperCase() === filterSource.toUpperCase());
+
       const matchesPD =
         !filterPD ||
         (item?.productionDate === filterPD);
 
-      return matchesSearch && matchesStart && matchesEnd && matchesType && matchesDestination && matchesPD;
+      return matchesSearch && matchesStart && matchesEnd && matchesType && matchesDestination && matchesSource && matchesPD;
     });
-  }, [transactions, itemsByBatchId, searchTerm, filterType, filterStartDate, filterEndDate, filterDestination, filterPD]);
+  }, [transactions, itemsByBatchId, searchTerm, filterType, filterStartDate, filterEndDate, filterDestination, filterSource, filterPD]);
 
   const trxSummary = useMemo(() => {
     let inPcs = 0;
@@ -274,6 +279,7 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users, use
     setFilterStartDate('');
     setFilterEndDate('');
     setFilterDestination('ALL');
+    setFilterSource('ALL');
     setFilterPD('');
   };
 
@@ -402,9 +408,31 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users, use
               </div>
             </div>
 
-            {/* Row 2: Filter PD, Filter Tujuan Keluar, Reset */}
+            {/* Row 2: Filter Source, Filter PD, Filter Tujuan Keluar, Reset */}
             <div className="grid grid-cols-1 md:grid-cols-12 gap-4 pt-3 border-t border-gray-100">
-              <div className="md:col-span-4">
+              <div className="md:col-span-3">
+                <div className="relative">
+                  <select
+                    className="w-full bg-gray-50 border border-transparent rounded-xl px-3 py-2 text-[10px] font-black uppercase outline-none focus:bg-white focus:border-red-600 h-10"
+                    value={filterSource}
+                    onChange={(e) => setFilterSource(e.target.value)}
+                  >
+                    <option value="ALL">SEMUA SUMBER</option>
+                    <option value="PDS">PDS</option>
+                    <option value="FPS">FPS</option>
+                    <option value="PARTING">PARTING</option>
+                    <option value="MARINASI">MARINASI</option>
+                    <option value="BONELESS">BONELESS</option>
+                    <option value="SO FRESH">SO FRESH</option>
+                    <option value="IQF">IQF</option>
+                    <option value="RETUR">RETUR</option>
+                    <option value="SMS">SMS</option>
+                    <option value="CS">CS</option>
+                  </select>
+                  <span className="absolute -top-2.5 left-2.5 bg-white px-1 text-[7px] font-extrabold text-gray-400 uppercase tracking-widest scale-90">Sumber (Source)</span>
+                </div>
+              </div>
+              <div className="md:col-span-3">
                 <div className="relative">
                   <input
                     type="date"
@@ -413,10 +441,10 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users, use
                     onChange={(e) => setFilterPD(e.target.value)}
                     title="Filter berdasarkan Tanggal Produksi"
                   />
-                  <span className="absolute -top-2.5 left-2.5 bg-white px-1 text-[7px] font-extrabold text-gray-400 uppercase tracking-widest scale-90">Filter PD (Tanggal Produksi)</span>
+                  <span className="absolute -top-2.5 left-2.5 bg-white px-1 text-[7px] font-extrabold text-gray-400 uppercase tracking-widest scale-90">Filter PD (Tgl Produksi)</span>
                 </div>
               </div>
-              <div className="md:col-span-4">
+              <div className="md:col-span-3">
                 <div className="relative">
                   <select
                     className="w-full bg-gray-50 border border-transparent rounded-xl px-3 py-2 text-[10px] font-black uppercase outline-none focus:bg-white focus:border-red-600 h-10"
@@ -436,10 +464,10 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users, use
                     <option value="IQF">IQF</option>
                     <option value="Retur">RETUR</option>
                   </select>
-                  <span className="absolute -top-2.5 left-2.5 bg-white px-1 text-[7px] font-extrabold text-gray-400 uppercase tracking-widest scale-90">Tujuan Keluar (Untuk OUT)</span>
+                  <span className="absolute -top-2.5 left-2.5 bg-white px-1 text-[7px] font-extrabold text-gray-400 uppercase tracking-widest scale-90">Tujuan Keluar (OUT)</span>
                 </div>
               </div>
-              <div className="md:col-span-4 flex items-end">
+              <div className="md:col-span-3 flex items-end">
                 <button
                   type="button"
                   onClick={resetFilters}
@@ -608,8 +636,8 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users, use
                   type="button"
                   onClick={() => setTrxViewMode('BATCH')}
                   className={`px-4 py-2 rounded-lg text-[10px] font-black transition-all uppercase tracking-wider cursor-pointer ${trxViewMode === 'BATCH'
-                      ? 'bg-white text-red-600 shadow-sm'
-                      : 'text-gray-500 hover:text-gray-900'
+                    ? 'bg-white text-red-600 shadow-sm'
+                    : 'text-gray-500 hover:text-gray-900'
                     }`}
                 >
                   Rekap Per Batch
@@ -618,8 +646,8 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users, use
                   type="button"
                   onClick={() => setTrxViewMode('ITEM')}
                   className={`px-4 py-2 rounded-lg text-[10px] font-black transition-all uppercase tracking-wider cursor-pointer ${trxViewMode === 'ITEM'
-                      ? 'bg-white text-red-600 shadow-sm'
-                      : 'text-gray-500 hover:text-gray-900'
+                    ? 'bg-white text-red-600 shadow-sm'
+                    : 'text-gray-500 hover:text-gray-900'
                     }`}
                 >
                   Rekap Per Item
