@@ -49,6 +49,7 @@ export interface Transaction {
   pcs: number;
   kgs: number;
   timestamp: number;
+  note?: string;
 }
 
 export interface SystemLog {
@@ -82,3 +83,28 @@ export interface VirtualInventory {
 }
 
 export type ViewState = 'DASHBOARD' | 'INFLOW' | 'INVENTORY' | 'REPORTS' | 'DAILY_REPORT' | 'ITEM_DATABASE' | 'VIRTUAL_INVENTORY';
+
+export interface StockOpnameItem {
+  id: string;
+  itemsId: string;
+  itemCode: string;
+  itemName: string;
+  productionDate: string;
+  slaughteringDate: string;
+  source: InflowSource;
+  allocation: InflowSource;
+  pcs: number;
+  kgs: number;
+  isWIP: boolean;
+}
+
+export interface StockOpnameRecord {
+  id: string;
+  opnameDate: string;
+  items: StockOpnameItem[];
+  createdBy: string;
+  createdAt: string;
+  totalPcs: number;
+  totalKgs: number;
+  notes?: string;
+}

@@ -213,7 +213,8 @@ const App: React.FC = () => {
         destination: item.destination as OutflowDestination,
         pcs: Number(item.quantity_pcs || 0),
         kgs: Number(item.quantity_kgs || 0),
-        timestamp: item.transaction_time ? new Date(item.transaction_time).getTime() : Date.now()
+        timestamp: item.transaction_time ? new Date(item.transaction_time).getTime() : Date.now(),
+        note: item.note || undefined
       }));
 
       // Dynamically heal missing 'IN' transactions for batches with outflow
