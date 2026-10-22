@@ -37,7 +37,11 @@ const App: React.FC = () => {
     return savedUser ? JSON.parse(savedUser) : null;
   });
 
-  const [activeView, setActiveView] = useState<ViewState>('DASHBOARD');
+  const [activeView, setActiveView] = useState<ViewState>(() => {
+    const savedUser = localStorage.getItem('bsi_user');
+    const parsed = savedUser ? JSON.parse(savedUser) : null;
+    return parsed?.role?.toUpperCase() === 'VIEWER' ? 'INVENTORY' : 'INFLOW';
+  });
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [isAboutOpen, setIsAboutOpen] = useState(false);
@@ -853,6 +857,7 @@ const App: React.FC = () => {
     localStorage.setItem('bsi_user', JSON.stringify(u));
     setStockLoaded(false);
     setTrxLoaded(false);
+    setActiveView(u.role?.toUpperCase() === 'VIEWER' ? 'INVENTORY' : 'INFLOW');
   };
 
   const handleLogout = () => {

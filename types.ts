@@ -17,7 +17,7 @@ export type OutflowDestination =
 export interface User {
   id: string; // Key ID for Profile
   username: string;
-  role: 'ADMIN' | 'USER' | 'ADMINQC' | 'SUPERADMIN';
+  role: 'ADMIN' | 'USER' | 'ADMINQC' | 'SUPERADMIN' | 'VIEWER' | string;
   fullName: string;
 }
 
