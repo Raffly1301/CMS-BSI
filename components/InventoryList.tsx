@@ -87,6 +87,7 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
   }, []);
 
   const isSuperAdmin = user?.role?.toUpperCase() === 'SUPERADMIN';
+  const isViewer = user?.role?.toUpperCase() === 'VIEWER';
 
   const handleEditBatchClick = (batch: ChillerItem) => {
     setEditingBatch(batch);
@@ -405,7 +406,7 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
         </div>
       )}
 
-      {selectedItemIds.length > 0 && (
+      {!isViewer && selectedItemIds.length > 0 && (
         <div className="sticky top-4 z-30 flex items-center justify-between bg-red-600 text-white p-3 rounded-xl shadow-xl animate-in slide-in-from-top">
           <div className="flex items-center gap-3 ml-2"><CheckSquare className="w-5 h-5" /><span className="font-black text-sm uppercase">{selectedItemIds.length} Terpilih</span></div>
           <div className="flex items-center gap-2"><button onClick={() => setSelectedItemIds([])} className="px-3 py-1.5 hover:bg-red-700 rounded-lg text-xs font-bold uppercase">Batal</button><button onClick={() => setIsBatchOutModalOpen(true)} className="bg-white text-red-600 px-4 py-1.5 rounded-lg text-xs font-black shadow-lg flex items-center gap-2 uppercase"><ArrowUpFromLine size={14} /> Keluar</button></div>
@@ -421,11 +422,11 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
           return (
             <div
               key={item.id}
-              onClick={() => toggleSelection(item.id)}
+              onClick={() => !isViewer && toggleSelection(item.id)}
               className={`
                 group relative bg-white rounded-2xl overflow-hidden border-2 transition-all flex flex-col
                 ${isPendingQC ? 'border-amber-400 bg-amber-50/20' : isSelected ? 'border-red-500 bg-red-50/20' : 'border-gray-50 hover:border-red-200 shadow-sm'}
-                ${isPendingQC ? 'cursor-default' : 'cursor-pointer'}
+                ${isPendingQC || isViewer ? 'cursor-default' : 'cursor-pointer'}
               `}
             >
               <div className="flex-1 flex flex-col p-3 gap-2">
@@ -505,12 +506,14 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
                           </div>
                         )
                       ) : (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setSelectedItemForSingleOut(item); }}
-                          className="w-full md:w-auto bg-red-600 text-white font-black px-5 py-2.5 rounded-xl flex items-center justify-center gap-2 hover:bg-red-700 transition-all active:scale-95 uppercase text-[10px] shadow-lg shadow-red-200 group-hover:shadow-red-300"
-                        >
-                          <ArrowUpFromLine size={14} /> KELUAR
-                        </button>
+                        !isViewer && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setSelectedItemForSingleOut(item); }}
+                            className="w-full md:w-auto bg-red-600 text-white font-black px-5 py-2.5 rounded-xl flex items-center justify-center gap-2 hover:bg-red-700 transition-all active:scale-95 uppercase text-[10px] shadow-lg shadow-red-200 group-hover:shadow-red-300"
+                          >
+                            <ArrowUpFromLine size={14} /> KELUAR
+                          </button>
+                        )
                       )}
                     </div>
                   </div>

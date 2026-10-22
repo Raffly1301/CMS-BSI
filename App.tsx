@@ -897,9 +897,11 @@ const App: React.FC = () => {
     }
   }, [activeView]);
 
+  const isViewer = user?.role?.toUpperCase() === 'VIEWER';
+
   const navigation = [
     { name: 'Dashboard', view: 'DASHBOARD' as ViewState, icon: LayoutDashboard },
-    { name: 'Input', view: 'INFLOW' as ViewState, icon: ArrowDownToLine },
+    ...(!isViewer ? [{ name: 'Input', view: 'INFLOW' as ViewState, icon: ArrowDownToLine }] : []),
     { name: 'Stok Chiller', view: 'INVENTORY' as ViewState, icon: ThermometerSnowflake },
     ...(user?.role?.toUpperCase() !== 'USER' ? [{ name: 'Laporan & Log', view: 'REPORTS' as ViewState, icon: ClipboardList }] : []),
     { name: 'Stok Harian', view: 'DAILY_REPORT' as ViewState, icon: BarChart3 },
@@ -1052,7 +1054,16 @@ const App: React.FC = () => {
         ) : (
           <div className="max-w-7xl mx-auto pb-20 md:pb-0">
             {activeView === 'DASHBOARD' && <Dashboard items={chillerTable} transactions={transactionTable} onNavigate={setActiveView} />}
-            {activeView === 'INFLOW' && <InflowForm onSubmitBatch={handleInflow} />}
+            {activeView === 'INFLOW' && (
+              isViewer ? (
+                <div className="bg-amber-50 border border-amber-200 text-amber-800 p-6 rounded-2xl text-center space-y-2">
+                  <h3 className="text-lg font-black uppercase tracking-tight">Akses Dibatasi</h3>
+                  <p className="text-xs font-medium">Akun dengan peran Viewer hanya memiliki akses melihat (Read-Only) dan tidak dapat melakukan transaksi masuk.</p>
+                </div>
+              ) : (
+                <InflowForm onSubmitBatch={handleInflow} />
+              )
+            )}
             {activeView === 'INVENTORY' && <InventoryList user={user} items={currentInventory} onOut={handleOutflow} onBatchOut={handleBatchOut} onQCApprove={(id) => handleQCAction(id, 'APPROVE')} onQCReject={(id) => handleQCAction(id, 'REJECT')} onRefresh={() => fetchStock(true)} />}
             {activeView === 'REPORTS' && <Reports items={chillerTable} transactions={transactionTable} logs={logTable} users={[user!]} user={user} />}
             {activeView === 'DAILY_REPORT' && <DailyStockReport items={chillerTable} transactions={transactionTable} user={user} onRefresh={() => fetchData(true)} />}
