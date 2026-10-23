@@ -26,6 +26,8 @@ import ItemDatabase from './components/ItemDatabase';
 import VirtualInventoryList from './components/VirtualInventoryList';
 import LoginForm from './components/LoginForm';
 import { supabase } from './lib/supabase';
+import { safeInsertChillerStock } from './lib/chillerStockHelper';
+import { isEgressQuotaError, saveTableCache, getTableCache } from './lib/cacheHelper';
 
 const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
@@ -45,6 +47,7 @@ const App: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [isAboutOpen, setIsAboutOpen] = useState(false);
+  const [isQuotaExceeded, setIsQuotaExceeded] = useState<boolean>(false);
 
   // Per-resource loading & loaded states for efficient on-demand menu loading
   const [stockLoaded, setStockLoaded] = useState(false);
@@ -71,48 +74,68 @@ const App: React.FC = () => {
     let from = 0;
     let keepGoing = true;
 
-    while (keepGoing) {
-      let { data, error } = await supabase
-        .from(table)
-        .select(selectCols)
-        .order(orderCol, { ascending: false })
-        .range(from, from + PAGE_SIZE - 1);
-
-      if (error && selectCols !== '*') {
-        console.warn(`Fetch error on table '${table}' with columns '${selectCols}', falling back to '*':`, error);
-        const retry1 = await supabase
+    try {
+      while (keepGoing) {
+        let { data, error } = await supabase
           .from(table)
-          .select('*')
+          .select(selectCols)
           .order(orderCol, { ascending: false })
           .range(from, from + PAGE_SIZE - 1);
-        data = retry1.data;
-        error = retry1.error;
+
+        if (error && selectCols !== '*') {
+          console.warn(`Fetch error on table '${table}' with columns '${selectCols}', falling back to '*':`, error);
+          const retry1 = await supabase
+            .from(table)
+            .select('*')
+            .order(orderCol, { ascending: false })
+            .range(from, from + PAGE_SIZE - 1);
+          data = retry1.data;
+          error = retry1.error;
+        }
+
+        if (error) {
+          console.warn(`Fetch error on table '${table}' with ordering '${orderCol}', falling back to no order:`, error);
+          const retry2 = await supabase
+            .from(table)
+            .select('*')
+            .range(from, from + PAGE_SIZE - 1);
+          data = retry2.data;
+          error = retry2.error;
+        }
+
+        if (error) {
+          if (isEgressQuotaError(error)) {
+            setIsQuotaExceeded(true);
+            console.warn(`Supabase egress quota restricted for table '${table}'. Retrieving local cache.`);
+          } else {
+            console.error(`Persistent fetch error on table '${table}':`, error);
+          }
+          const cached = getTableCache(table);
+          if (cached && cached.length > 0) return cached;
+          return [];
+        }
+
+        if (data && data.length > 0) {
+          allData = allData.concat(data);
+          from += PAGE_SIZE;
+          if (data.length < PAGE_SIZE) keepGoing = false;
+        } else {
+          keepGoing = false;
+        }
       }
 
-      if (error) {
-        console.warn(`Fetch error on table '${table}' with ordering '${orderCol}', falling back to no order:`, error);
-        const retry2 = await supabase
-          .from(table)
-          .select('*')
-          .range(from, from + PAGE_SIZE - 1);
-        data = retry2.data;
-        error = retry2.error;
+      if (allData.length > 0) {
+        saveTableCache(table, allData);
       }
-
-      if (error) {
-        console.error(`Persistent fetch error on table '${table}':`, error);
-        throw error;
+      return allData;
+    } catch (err: any) {
+      if (isEgressQuotaError(err)) {
+        setIsQuotaExceeded(true);
       }
-
-      if (data && data.length > 0) {
-        allData = allData.concat(data);
-        from += PAGE_SIZE;
-        if (data.length < PAGE_SIZE) keepGoing = false;
-      } else {
-        keepGoing = false;
-      }
+      console.warn(`Exception fetching table '${table}', falling back to cache:`, err);
+      const cached = getTableCache(table);
+      return cached || [];
     }
-    return allData;
   }, []);
 
   const fetchLookups = useCallback(async () => {
@@ -125,29 +148,46 @@ const App: React.FC = () => {
         supabase.from('users').select('id, username')
       ]);
 
-      if (itemsRes.error) {
-        const { data: fallbackItems } = await supabase.from('items').select('*');
-        if (fallbackItems) {
-          fallbackItems.forEach((item: any) => {
-            itemsCache.current[item.id] = { name: item.description || item.name || '', code: item.code || '' };
-          });
-        }
-      } else if (itemsRes.data) {
-        itemsRes.data.forEach((item: any) => {
-          itemsCache.current[item.id] = { name: item.description || '', code: item.code || '' };
+      if (itemsRes.error && isEgressQuotaError(itemsRes.error)) setIsQuotaExceeded(true);
+      if (usersRes.error && isEgressQuotaError(usersRes.error)) setIsQuotaExceeded(true);
+
+      let itemsData = itemsRes.data;
+      if (!itemsData) {
+        itemsData = getTableCache('items');
+      } else {
+        saveTableCache('items', itemsData);
+      }
+      if (itemsData) {
+        itemsData.forEach((item: any) => {
+          itemsCache.current[item.id] = { name: item.description || item.name || '', code: item.code || '' };
         });
       }
 
-      if (usersRes.error) {
-        const { data: fallbackUsers } = await supabase.from('users').select('*');
-        if (fallbackUsers) {
-          fallbackUsers.forEach((u: any) => { usersCache.current[u.id] = u.username; });
-        }
-      } else if (usersRes.data) {
-        usersRes.data.forEach((u: any) => { usersCache.current[u.id] = u.username; });
+      let usersData = usersRes.data;
+      if (!usersData) {
+        usersData = getTableCache('users');
+      } else {
+        saveTableCache('users', usersData);
+      }
+      if (usersData) {
+        usersData.forEach((u: any) => {
+          usersCache.current[u.id] = u.username;
+        });
       }
     } catch (e) {
-      console.warn("Non-fatal lookups fetch issue:", e);
+      console.warn("Non-fatal lookups fetch issue, trying cache:", e);
+      const cachedItems = getTableCache('items');
+      if (cachedItems) {
+        cachedItems.forEach((item: any) => {
+          itemsCache.current[item.id] = { name: item.description || item.name || '', code: item.code || '' };
+        });
+      }
+      const cachedUsers = getTableCache('users');
+      if (cachedUsers) {
+        cachedUsers.forEach((u: any) => {
+          usersCache.current[u.id] = u.username;
+        });
+      }
     }
   }, []);
 
@@ -159,7 +199,7 @@ const App: React.FC = () => {
       const stockData = await fetchAllRows(
         'chiller_stock',
         'created_at',
-        'id,batch_id,items_id,quantity_pcs,quantity_kgs,production_date,slaughtering_date,source,allocation,created_at,status,status_WIP'
+        '*'
       );
 
       const mappedStock: ChillerItem[] = (stockData || []).map((item: any) => ({
@@ -320,22 +360,22 @@ const App: React.FC = () => {
 
   // Real-time synchronization only for data that has already been loaded by the user
   useEffect(() => {
-    if (isAuthenticated) {
+    if (isAuthenticated && !isQuotaExceeded) {
       const channel = supabase.channel('bsi-realtime')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'chiller_stock' }, () => {
-          if (stockLoadedRef.current) {
+          if (stockLoadedRef.current && !isQuotaExceeded) {
             debouncedFetchStock(true);
           }
         })
         .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, () => {
-          if (trxLoadedRef.current) {
+          if (trxLoadedRef.current && !isQuotaExceeded) {
             debouncedFetchTrx(true);
           }
         })
         .subscribe();
       return () => { supabase.removeChannel(channel); };
     }
-  }, [isAuthenticated, debouncedFetchStock, debouncedFetchTrx]);
+  }, [isAuthenticated, isQuotaExceeded, debouncedFetchStock, debouncedFetchTrx]);
 
   const updateVirtualStock = async (destination: string, itemsId: string, pcs: number, kgs: number, type: 'ADD' | 'SUBTRACT') => {
     try {
@@ -508,21 +548,21 @@ const App: React.FC = () => {
         existingSet.add(batchId);
 
         try {
-          const { error: stockErr } = await supabase.from('chiller_stock').insert({
-            batch_id: batchId,
-            items_id: item.itemsId,
-            quantity_pcs: item.pcs,
-            quantity_kgs: item.kgs,
-            production_date: item.productionDate,
-            slaughtering_date: item.slaughteringDate,
-            status: 'IN',
-            created_by: user.id,
-            source: item.source,
-            allocation: item.allocation,
-            status_WIP: item.isWIP || false
-          });
-
-          if (stockErr) {
+          try {
+            await safeInsertChillerStock([{
+              batch_id: batchId,
+              items_id: item.itemsId,
+              quantity_pcs: item.pcs,
+              quantity_kgs: item.kgs,
+              production_date: item.productionDate,
+              slaughtering_date: item.slaughteringDate,
+              status: 'IN',
+              created_by: user.id,
+              source: item.source,
+              allocation: item.allocation,
+              isWIP: item.isWIP || false
+            }]);
+          } catch (stockErr: any) {
             // Check for duplicate key / unique constraint violation
             const isDuplicate = stockErr.code === '23505' ||
               stockErr.message?.toLowerCase().includes('unique') ||
@@ -1052,6 +1092,23 @@ const App: React.FC = () => {
       </aside>
 
       <main className="flex-1 h-screen overflow-y-auto p-4 md:p-8 bg-gray-50">
+        {isQuotaExceeded && (
+          <div className="max-w-7xl mx-auto mb-4 bg-amber-500/90 backdrop-blur-sm text-white px-4 py-2.5 rounded-2xl shadow-lg flex items-center justify-between text-xs font-bold animate-in slide-in-from-top-2 border border-amber-400">
+            <div className="flex items-center gap-2.5">
+              <Info size={18} className="shrink-0 text-amber-100" />
+              <span>
+                <strong>Mode Cache Lokal:</strong> Kuota egress cloud Supabase terlampaui. Menampilkan data tersimpan dari cache lokal agar aplikasi tetap berfungsi normal.
+              </span>
+            </div>
+            <button
+              onClick={() => setIsQuotaExceeded(false)}
+              className="px-2.5 py-1 bg-white/20 hover:bg-white/30 text-white rounded-xl transition-colors font-extrabold text-[10px] uppercase shrink-0"
+            >
+              Tutup
+            </button>
+          </div>
+        )}
+
         {isViewLoading ? (
           <div className="h-full flex flex-col items-center justify-center text-gray-400 gap-4 min-h-[400px]">
             <div className="w-12 h-12 border-4 border-red-100 border-t-red-600 rounded-full animate-spin"></div>

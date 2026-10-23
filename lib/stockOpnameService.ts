@@ -1,5 +1,7 @@
 import { supabase } from './supabase';
+import { safeInsertChillerStock, safeInsertStockOpname } from './chillerStockHelper';
 import { StockOpnameItem, StockOpnameRecord, User, InflowSource } from '../types';
+import { isEgressQuotaError, getTableCache } from './cacheHelper';
 
 const STORAGE_KEY = 'bsi_stock_opname_history';
 
@@ -26,7 +28,7 @@ export const saveLocalOpnameHistory = (records: StockOpnameRecord[]) => {
 
 /**
  * Fetch all stock opname records.
- * Tries Supabase table `stock_opname` first; if it returns PGRST205 (table doesn't exist)
+ * Tries Supabase table `stock_opname` first; if it returns PGRST205, exceed_egress_quota,
  * or another error, it falls back seamlessly to localStorage.
  */
 export const fetchStockOpnames = async (): Promise<{ records: StockOpnameRecord[]; isFromCloud: boolean }> => {
@@ -39,7 +41,11 @@ export const fetchStockOpnames = async (): Promise<{ records: StockOpnameRecord[
             .order('opname_date', { ascending: false });
 
         if (error) {
-            console.warn('Supabase stock_opname query error, using localStorage fallback:', error.message);
+            if (isEgressQuotaError(error)) {
+                console.warn('Supabase egress quota restricted for stock_opname, falling back to local cache.');
+            } else {
+                console.warn('Supabase stock_opname query error, using localStorage fallback:', error.message);
+            }
             return { records: localRecords, isFromCloud: false };
         }
 
@@ -178,19 +184,15 @@ export const saveAndApplyStockOpname = async ({
             slaughtering_date: item.slaughteringDate || opnameDate,
             source: item.source || 'PDS',
             allocation: item.allocation || 'PDS',
-            status_wip: Boolean(item.isWIP),
+            isWIP: Boolean(item.isWIP),
             created_by: user.fullName || user.username,
             created_at: new Date().toISOString()
         }));
 
-        const { error: insertError } = await supabase.from('stock_opname').insert(rowsToInsert);
-        if (!insertError) {
-            savedToCloud = true;
-        } else {
-            console.warn('Supabase insert to stock_opname returned error (will continue with local + chiller sync):', insertError);
-        }
+        await safeInsertStockOpname(rowsToInsert);
+        savedToCloud = true;
     } catch (cloudErr) {
-        console.warn('Could not persist to Supabase stock_opname table:', cloudErr);
+        console.warn('Could not persist to Supabase stock_opname table (fallback to local):', cloudErr);
     }
 
     // 3. Synchronize Chiller Stock if requested
@@ -200,8 +202,7 @@ export const saveAndApplyStockOpname = async ({
             const { error: archiveError } = await supabase
                 .from('chiller_stock')
                 .update({
-                    status: 'OUT',
-                    qc_notes: `Opname ${opnameDate}`
+                    status: 'OUT'
                 })
                 .eq('status', 'IN');
 
@@ -227,22 +228,17 @@ export const saveAndApplyStockOpname = async ({
                     created_by: user.id,
                     source: item.source || 'PDS',
                     allocation: item.allocation || 'PDS',
-                    status_WIP: Boolean(item.isWIP),
-                    qc_notes: `Hasil Stock Opname ${opnameDate}`
+                    isWIP: Boolean(item.isWIP)
                 };
             });
 
-            // Insert in chunks of 50 to avoid payload limits
+            // Insert resiliently (handles status_WIP / status_wip / column omit automatically)
+            await safeInsertChillerStock(newStockBatches);
+
+            // Insert transaction audit
             const CHUNK_SIZE = 50;
             for (let i = 0; i < newStockBatches.length; i += CHUNK_SIZE) {
                 const chunk = newStockBatches.slice(i, i + CHUNK_SIZE);
-                const { error: stockErr } = await supabase.from('chiller_stock').insert(chunk);
-                if (stockErr) {
-                    console.error('Error inserting stock batch during opname sync:', stockErr);
-                    throw stockErr;
-                }
-
-                // Insert transaction audit
                 const trxChunk = chunk.map((c, idx) => {
                     const origItem = items[i + idx];
                     return {

@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import CalculatorPopup from './CalculatorPopup';
 import { supabase } from '../lib/supabase';
+import { safeUpdateChillerStock } from '../lib/chillerStockHelper';
 
 interface InventoryListProps {
   user: User | null;
@@ -117,10 +118,10 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
       const selectedItemObj = itemsList.find(it => it.id === editingItemsId);
       const selectedItemCode = selectedItemObj?.code || 'N/A';
 
-      // 1. Update chiller_stock
-      const { error: stockErr } = await supabase
-        .from('chiller_stock')
-        .update({
+      // 1. Update chiller_stock with resilient schema detection
+      await safeUpdateChillerStock(
+        { col: 'batch_id', val: editingBatch.batchId },
+        {
           items_id: editingItemsId,
           quantity_pcs: editingPcs,
           quantity_kgs: editingKgs,
@@ -128,12 +129,10 @@ const InventoryList: React.FC<InventoryListProps> = ({ user, items, onOut, onBat
           slaughtering_date: editingSlaughteringDate,
           source: editingSource,
           allocation: editingAllocation,
-          status_WIP: editingIsWIP,
+          isWIP: editingIsWIP,
           status: editingStatus
-        })
-        .eq('batch_id', editingBatch.batchId);
-
-      if (stockErr) throw stockErr;
+        }
+      );
 
       // 2. Also update related initial transaction or IN transactions if quantities/item modified
       const { data: firstInTrx, error: trxFetchErr } = await supabase

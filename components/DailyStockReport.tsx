@@ -20,8 +20,10 @@ import {
   ClipboardCheck
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { safeUpdateChillerStock } from '../lib/chillerStockHelper';
 import { StockOpnameTab } from './StockOpnameTab';
 import { fetchStockOpnames } from '../lib/stockOpnameService';
+import { getTableCache } from '../lib/cacheHelper';
 
 interface DailyStockReportProps {
   items: ChillerItem[];
@@ -139,7 +141,14 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
         error = retry.error;
       }
 
-      if (!error && data) {
+      if (error || !data) {
+        const cached = getTableCache('items');
+        if (cached) {
+          data = cached;
+        }
+      }
+
+      if (data) {
         setItemsList(data);
       }
     };
@@ -186,10 +195,10 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
       const selectedItemObj = itemsList.find(it => it.id === editingItemsId);
       const selectedItemCode = selectedItemObj?.code || 'N/A';
 
-      // 1. Update chiller_stock
-      const { error: stockErr } = await supabase
-        .from('chiller_stock')
-        .update({
+      // 1. Update chiller_stock with resilient schema detection
+      await safeUpdateChillerStock(
+        { col: 'batch_id', val: editingBatch.batchId },
+        {
           items_id: editingItemsId,
           quantity_pcs: editingPcs,
           quantity_kgs: editingKgs,
@@ -197,12 +206,10 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
           slaughtering_date: editingSlaughteringDate,
           source: editingSource,
           allocation: editingAllocation,
-          status_WIP: editingIsWIP,
+          isWIP: editingIsWIP,
           status: editingStatus
-        })
-        .eq('batch_id', editingBatch.batchId);
-
-      if (stockErr) throw stockErr;
+        }
+      );
 
       // 2. Also update related initial transaction or IN transactions if quantities/item modified
       const { data: firstInTrx, error: trxFetchErr } = await supabase

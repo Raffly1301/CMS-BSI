@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { ItemMaster, User } from '../types';
+import { saveTableCache, getTableCache } from '../lib/cacheHelper';
 import {
   Plus,
   Trash2,
@@ -51,9 +52,14 @@ const ItemDatabase: React.FC<ItemDatabaseProps> = ({ user }) => {
         .order('code', { ascending: true });
 
       if (error) throw error;
-      setItems(data || []);
+      if (data) {
+        setItems(data);
+        saveTableCache('items', data);
+      }
     } catch (err) {
-      console.error('Error fetching items:', err);
+      console.error('Error fetching items, loading from cache:', err);
+      const cached = getTableCache('items');
+      if (cached) setItems(cached);
     } finally {
       if (!silent) setLoading(false);
     }

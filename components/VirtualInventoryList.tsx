@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { VirtualInventory } from '../types';
 import { supabase } from '../lib/supabase';
+import { saveTableCache, getTableCache } from '../lib/cacheHelper';
 import {
   Package,
   Search,
@@ -73,9 +74,12 @@ const VirtualInventoryList: React.FC = () => {
           item_code: item.items?.code || 'N/A'
         }));
         setInventory(mappedData as VirtualInventory[]);
+        saveTableCache('virtual_inventory', mappedData);
       }
     } catch (err) {
-      console.error("Error fetching virtual inventory:", err);
+      console.error("Error fetching virtual inventory, reading from local cache:", err);
+      const cached = getTableCache('virtual_inventory');
+      if (cached) setInventory(cached as VirtualInventory[]);
     } finally {
       setIsLoading(false);
     }
