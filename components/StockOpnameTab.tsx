@@ -236,6 +236,83 @@ export const StockOpnameTab: React.FC<StockOpnameTabProps> = ({
         }
     };
 
+    // Helper to parse Excel dates (JS Date, Excel serial number, or DD/MM/YYYY, YYYY-MM-DD string)
+    const parseExcelDate = (rawVal: any, fallbackDate: string): string => {
+        if (rawVal === undefined || rawVal === null || rawVal === '') {
+            return fallbackDate;
+        }
+
+        // Case 1: JS Date object (e.g. from XLSX cellDates: true)
+        if (rawVal instanceof Date && !isNaN(rawVal.getTime())) {
+            const y = rawVal.getFullYear();
+            const m = String(rawVal.getMonth() + 1).padStart(2, '0');
+            const d = String(rawVal.getDate()).padStart(2, '0');
+            return `${y}-${m}-${d}`;
+        }
+
+        // Case 2: Numeric Excel date serial number (e.g. 45230 or "45230")
+        if (typeof rawVal === 'number' || (typeof rawVal === 'string' && /^\d{5}(\.\d+)?$/.test(rawVal.trim()))) {
+            const num = Number(rawVal);
+            if (!isNaN(num) && num > 20000 && num < 80000) {
+                const dt = new Date(Math.round((num - 25569) * 86400 * 1000));
+                if (!isNaN(dt.getTime())) {
+                    const y = dt.getUTCFullYear();
+                    const m = String(dt.getUTCMonth() + 1).padStart(2, '0');
+                    const d = String(dt.getUTCDate()).padStart(2, '0');
+                    return `${y}-${m}-${d}`;
+                }
+            }
+        }
+
+        const str = String(rawVal).trim();
+        if (!str) return fallbackDate;
+
+        // Case 3: Standard ISO / YYYY-MM-DD or YYYY/MM/DD
+        const matchIso = str.match(/^(\d{4})[-/. ](\d{1,2})[-/. ](\d{1,2})/);
+        if (matchIso) {
+            const [, y, m, d] = matchIso;
+            return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+        }
+
+        // Case 4: Indonesian / European format: DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY, DD/MM/YY
+        const matchDmy = str.match(/^(\d{1,2})[-/. ](\d{1,2})[-/. ](\d{2,4})/);
+        if (matchDmy) {
+            let [, d, m, y] = matchDmy;
+            if (y.length === 2) {
+                y = Number(y) > 50 ? `19${y}` : `20${y}`;
+            }
+            return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+        }
+
+        // Fallback: try standard JS Date parse
+        const parsed = new Date(str);
+        if (!isNaN(parsed.getTime())) {
+            const y = parsed.getFullYear();
+            const m = String(parsed.getMonth() + 1).padStart(2, '0');
+            const d = String(parsed.getDate()).padStart(2, '0');
+            return `${y}-${m}-${d}`;
+        }
+
+        return fallbackDate;
+    };
+
+    // Helper to find raw value by multiple possible header keys
+    const getRowVal = (row: any, keys: string[]) => {
+        for (const k of keys) {
+            if (row[k] !== undefined && row[k] !== null && row[k] !== '') return row[k];
+        }
+        const rowKeys = Object.keys(row);
+        for (const targetKey of keys) {
+            const normTarget = targetKey.toLowerCase().replace(/[^a-z0-9]/g, '');
+            for (const rk of rowKeys) {
+                if (rk.toLowerCase().replace(/[^a-z0-9]/g, '') === normTarget) {
+                    if (row[rk] !== undefined && row[rk] !== null && row[rk] !== '') return row[rk];
+                }
+            }
+        }
+        return undefined;
+    };
+
     // Import from Excel
     const handleImportExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -265,15 +342,32 @@ export const StockOpnameTab: React.FC<StockOpnameTabProps> = ({
 
                 json.forEach((row, idx) => {
                     // Normalize column headers
-                    const codeVal = String(row['Kode Item'] || row['Kode'] || row['Item Code'] || row['code'] || '').trim();
-                    const nameVal = String(row['Nama Item'] || row['Deskripsi'] || row['Item Name'] || '').trim();
-                    const pdVal = String(row['Tanggal Produksi (YYYY-MM-DD)'] || row['Tanggal Produksi'] || row['PD'] || opnameDate).trim();
-                    const sdVal = String(row['Tanggal Potong (YYYY-MM-DD)'] || row['Tanggal Potong'] || row['SD'] || opnameDate).trim();
-                    const srcVal = String(row['Sumber'] || row['Source'] || 'PDS').trim().toUpperCase() as InflowSource;
-                    const alocVal = String(row['Alokasi'] || row['Allocation'] || 'PDS').trim().toUpperCase() as InflowSource;
-                    const pcsVal = Number(row['Pcs'] || row['Quantity Pcs'] || row['PCS'] || 0);
-                    const kgsVal = Number(row['Kg'] || row['Kgs'] || row['Quantity Kgs'] || row['KG'] || 0);
-                    const wipRaw = String(row['WIP (YA/TIDAK)'] || row['WIP'] || row['Status WIP'] || '').trim().toUpperCase();
+                    const rawCode = getRowVal(row, ['Kode Item', 'Kode', 'Item Code', 'code']) || '';
+                    const codeVal = String(rawCode).trim();
+
+                    const rawName = getRowVal(row, ['Nama Item', 'Deskripsi / Nama Item', 'Deskripsi', 'Item Name']) || '';
+                    const nameVal = String(rawName).trim();
+
+                    const rawPd = getRowVal(row, ['Tanggal Produksi (YYYY-MM-DD)', 'Tanggal Produksi', 'Tgl Produksi', 'Production Date', 'PD']);
+                    const pdVal = parseExcelDate(rawPd, opnameDate);
+
+                    const rawSd = getRowVal(row, ['Tanggal Potong (YYYY-MM-DD)', 'Tanggal Potong', 'Tgl Potong', 'Slaughter Date', 'Slaughtering Date', 'SD']);
+                    const sdVal = parseExcelDate(rawSd, opnameDate);
+
+                    const rawSrc = getRowVal(row, ['Sumber', 'Source']) || 'PDS';
+                    const srcVal = String(rawSrc).trim().toUpperCase() as InflowSource;
+
+                    const rawAloc = getRowVal(row, ['Alokasi', 'Allocation']) || 'PDS';
+                    const alocVal = String(rawAloc).trim().toUpperCase() as InflowSource;
+
+                    const rawPcs = getRowVal(row, ['Pcs', 'Quantity Pcs', 'PCS']) || 0;
+                    const pcsVal = Number(rawPcs) || 0;
+
+                    const rawKgs = getRowVal(row, ['Kg', 'Kgs', 'Quantity Kgs', 'KG']) || 0;
+                    const kgsVal = Number(rawKgs) || 0;
+
+                    const rawWip = getRowVal(row, ['WIP (YA/TIDAK)', 'WIP', 'Status WIP', 'isWIP']) || '';
+                    const wipRaw = String(rawWip).trim().toUpperCase();
                     const isWIP = wipRaw === 'YA' || wipRaw === 'TRUE' || wipRaw === '1' || wipRaw === 'YES';
 
                     // Try match item with itemsList

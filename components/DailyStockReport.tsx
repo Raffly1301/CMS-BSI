@@ -55,8 +55,14 @@ const normalizeCategory = (name: string): string => {
 
 interface StockRow {
   name: string;
-  openingKgs: number;
-  openingPcs: number;
+  openingBeforeSOKgs: number;
+  openingBeforeSOPcs: number;
+  soKgs: number | null;
+  soPcs: number | null;
+  diffKgs: number | null;
+  diffPcs: number | null;
+  openingAfterSOKgs: number;
+  openingAfterSOPcs: number;
   inKgs: number;
   inPcs: number;
   outKgs: number;
@@ -117,6 +123,15 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
 
   const activeOpnameRecord = useMemo(() => {
     return opnameRecords.find(r => r.opnameDate === startDate) || null;
+  }, [opnameRecords, startDate]);
+
+  // Most recent opname record on or before startDate
+  const mostRecentOpnameRecord = useMemo(() => {
+    if (!opnameRecords || opnameRecords.length === 0) return null;
+    const eligible = opnameRecords.filter(r => r.opnameDate <= startDate);
+    if (eligible.length === 0) return null;
+    const sorted = [...eligible].sort((a, b) => b.opnameDate.localeCompare(a.opnameDate));
+    return sorted[0];
   }, [opnameRecords, startDate]);
 
   const handleOpnameApplied = async (appliedDate: string) => {
@@ -327,18 +342,61 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
     };
   }, [startDate, endDate, transactions, items]);
 
+  // Helper to map any code/description to official Master Item code
+  const resolveToMasterCode = (rawCode?: string, rawName?: string): string => {
+    const c = (rawCode || '').trim().toUpperCase();
+    const n = (rawName || '').trim().toUpperCase();
+
+    if (c) {
+      const byCode = itemsList.find(m => m.code.trim().toUpperCase() === c);
+      if (byCode) return byCode.code;
+    }
+
+    if (c || n) {
+      const byDesc = itemsList.find(m =>
+        (c && m.description.trim().toUpperCase() === c) ||
+        (n && m.description.trim().toUpperCase() === n)
+      );
+      if (byDesc) return byDesc.code;
+    }
+
+    return c || n || 'N/A';
+  };
+
   const reportData = useMemo(() => {
     const startRange = new Date(startDate).setHours(0, 0, 0, 0);
     const endRange = new Date(endDate).setHours(23, 59, 59, 999);
 
-    const opnameCodes = activeOpnameRecord ? activeOpnameRecord.items.map(i => i.itemCode) : [];
-    const itemCodes: string[] = Array.from(new Set([...items.map(i => i.itemCode), ...opnameCodes])).filter(c => c && c !== 'N/A');
+    const targetOpname = activeOpnameRecord || mostRecentOpnameRecord;
+
+    const rawCodesSet = new Set<string>();
+
+    items.forEach(i => {
+      const official = resolveToMasterCode(i.itemCode, i.itemName);
+      if (official && official !== 'N/A') rawCodesSet.add(official);
+    });
+
+    transactions.forEach(t => {
+      const matchedItem = items.find(i => i.batchId === t.chillerId);
+      const official = resolveToMasterCode(matchedItem?.itemCode || t.itemCode, matchedItem?.itemName);
+      if (official && official !== 'N/A') rawCodesSet.add(official);
+    });
+
+    if (targetOpname) {
+      targetOpname.items.forEach(it => {
+        const official = resolveToMasterCode(it.itemCode, it.itemName);
+        if (official && official !== 'N/A') rawCodesSet.add(official);
+      });
+    }
+
+    const itemCodes = Array.from(rawCodesSet);
+
     const rows: StockRow[] = [];
 
     const processGroup = (filterFn: (item: ChillerItem) => boolean, label: string, isWIPGroup = false) => {
       const groupItems = items.filter(filterFn);
 
-      // Look up transactions from precomputed map instead of filtering entire transactions array
+      // Look up transactions from precomputed map
       const groupTrx: Transaction[] = [];
       groupItems.forEach(i => {
         const batchTrxs = transactionsByChillerId[i.batchId];
@@ -349,52 +407,136 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
 
       const sumT = (arr: Transaction[], key: 'kgs' | 'pcs') => arr.reduce((acc, curr) => acc + (curr[key] || 0), 0);
 
-      // Opening Stock: If Stock Opname exists for startDate, opening stock is directly anchored by the Opname recount!
-      let openingKgs = 0;
-      let openingPcs = 0;
+      // 1. Stok Awal Sebelum SO (dari sistem/opname sebelumnya)
+      let openingBeforeSOKgs = 0;
+      let openingBeforeSOPcs = 0;
+
+      const prevOpname = opnameRecords
+        .filter(r => r.opnameDate < startDate)
+        .sort((a, b) => b.opnameDate.localeCompare(a.opnameDate))[0];
+
+      if (prevOpname) {
+        const prevOpnameDateStr = prevOpname.opnameDate;
+        const prevOpnameMs = new Date(`${prevOpnameDateStr}T00:00:00`).getTime();
+
+        let basePrevOpnameKgs = 0;
+        let basePrevOpnamePcs = 0;
+
+        if (isWIPGroup) {
+          const opnameWipItems = prevOpname.items.filter(it => it.isWIP);
+          basePrevOpnameKgs = opnameWipItems.reduce((acc, curr) => acc + (Number(curr.kgs) || 0), 0);
+          basePrevOpnamePcs = opnameWipItems.reduce((acc, curr) => acc + (Number(curr.pcs) || 0), 0);
+        } else {
+          const opnameItems = prevOpname.items.filter(it => {
+            if (it.isWIP) return false;
+            return resolveToMasterCode(it.itemCode, it.itemName) === label;
+          });
+          basePrevOpnameKgs = opnameItems.reduce((acc, curr) => acc + (Number(curr.kgs) || 0), 0);
+          basePrevOpnamePcs = opnameItems.reduce((acc, curr) => acc + (Number(curr.pcs) || 0), 0);
+        }
+
+        const interimInTrx = groupTrx.filter(t =>
+          t.type === 'IN' &&
+          t.timestamp >= prevOpnameMs &&
+          t.timestamp < startRange &&
+          (!t.note || !t.note.includes('[STOCK OPNAME]'))
+        );
+        const interimOutTrx = groupTrx.filter(t =>
+          t.type === 'OUT' &&
+          t.timestamp >= prevOpnameMs &&
+          t.timestamp < startRange
+        );
+
+        openingBeforeSOKgs = basePrevOpnameKgs + sumT(interimInTrx, 'kgs') - sumT(interimOutTrx, 'kgs');
+        openingBeforeSOPcs = basePrevOpnamePcs + sumT(interimInTrx, 'pcs') - sumT(interimOutTrx, 'pcs');
+      } else {
+        const beforeInK = sumT(groupTrx.filter(t => t.type === 'IN' && t.timestamp < startRange), 'kgs');
+        const beforeOutK = sumT(groupTrx.filter(t => t.type === 'OUT' && t.timestamp < startRange), 'kgs');
+        openingBeforeSOKgs = beforeInK - beforeOutK;
+
+        const beforeInP = sumT(groupTrx.filter(t => t.type === 'IN' && t.timestamp < startRange), 'pcs');
+        const beforeOutP = sumT(groupTrx.filter(t => t.type === 'OUT' && t.timestamp < startRange), 'pcs');
+        openingBeforeSOPcs = beforeInP - beforeOutP;
+      }
+
+      // 2. SO Fisik pada tanggal startDate (jika ada Opname)
+      let soKgs: number | null = null;
+      let soPcs: number | null = null;
 
       if (activeOpnameRecord) {
         if (isWIPGroup) {
           const opnameWipItems = activeOpnameRecord.items.filter(it => it.isWIP);
-          openingKgs = opnameWipItems.reduce((acc, curr) => acc + (Number(curr.kgs) || 0), 0);
-          openingPcs = opnameWipItems.reduce((acc, curr) => acc + (Number(curr.pcs) || 0), 0);
+          if (opnameWipItems.length > 0) {
+            soKgs = opnameWipItems.reduce((acc, curr) => acc + (Number(curr.kgs) || 0), 0);
+            soPcs = opnameWipItems.reduce((acc, curr) => acc + (Number(curr.pcs) || 0), 0);
+          } else if (openingBeforeSOKgs > 0 || openingBeforeSOPcs > 0) {
+            soKgs = 0;
+            soPcs = 0;
+          }
         } else {
-          const opnameItems = activeOpnameRecord.items.filter(it => !it.isWIP && it.itemCode === label);
-          openingKgs = opnameItems.reduce((acc, curr) => acc + (Number(curr.kgs) || 0), 0);
-          openingPcs = opnameItems.reduce((acc, curr) => acc + (Number(curr.pcs) || 0), 0);
+          const opnameItems = activeOpnameRecord.items.filter(it => {
+            if (it.isWIP) return false;
+            return resolveToMasterCode(it.itemCode, it.itemName) === label;
+          });
+          if (opnameItems.length > 0) {
+            soKgs = opnameItems.reduce((acc, curr) => acc + (Number(curr.kgs) || 0), 0);
+            soPcs = opnameItems.reduce((acc, curr) => acc + (Number(curr.pcs) || 0), 0);
+          } else if (openingBeforeSOKgs > 0 || openingBeforeSOPcs > 0) {
+            soKgs = 0;
+            soPcs = 0;
+          }
         }
-      } else {
-        // Standard formula: (Total IN before range) - (Total OUT before range)
-        const beforeInK = sumT(groupTrx.filter(t => t.type === 'IN' && t.timestamp < startRange), 'kgs');
-        const beforeOutK = sumT(groupTrx.filter(t => t.type === 'OUT' && t.timestamp < startRange), 'kgs');
-        openingKgs = beforeInK - beforeOutK;
-
-        const beforeInP = sumT(groupTrx.filter(t => t.type === 'IN' && t.timestamp < startRange), 'pcs');
-        const beforeOutP = sumT(groupTrx.filter(t => t.type === 'OUT' && t.timestamp < startRange), 'pcs');
-        openingPcs = beforeInP - beforeOutP;
       }
 
-      // Movements during the range (exclude opname batch generation from dayInTrx to prevent double counting)
+      // 3. Selisih = SO Fisik - Stok Awal Sebelum SO (Fisik 0 - Sistem 100 = -100)
+      const diffKgs = soKgs !== null ? (soKgs - openingBeforeSOKgs) : null;
+      const diffPcs = soPcs !== null ? (soPcs - openingBeforeSOPcs) : null;
+
+      // 4. Stok Awal Setelah SO Wajib Persis Sama Dengan Hasil SO
+      const openingAfterSOKgs = soKgs !== null ? soKgs : openingBeforeSOKgs;
+      const openingAfterSOPcs = soPcs !== null ? soPcs : openingBeforeSOPcs;
+
+      // 5. Movements during the range
       const dayInTrx = groupTrx.filter(t => {
         if (t.type !== 'IN' || t.timestamp < startRange || t.timestamp > endRange) return false;
-        if (activeOpnameRecord && t.note && t.note.includes('[STOCK OPNAME]')) return false;
+        if (t.note && t.note.includes('[STOCK OPNAME]')) return false;
+
+        if (activeOpnameRecord) {
+          const opnameMs = activeOpnameRecord.createdAt ? new Date(activeOpnameRecord.createdAt).getTime() : new Date(`${startDate}T00:00:01`).getTime();
+          if (t.timestamp <= opnameMs) return false;
+        }
         return true;
       });
-      const dayOutTrx = groupTrx.filter(t => t.type === 'OUT' && t.timestamp >= startRange && t.timestamp <= endRange);
+
+      const dayOutTrx = groupTrx.filter(t => {
+        if (t.type !== 'OUT' || t.timestamp < startRange || t.timestamp > endRange) return false;
+
+        if (activeOpnameRecord) {
+          const opnameMs = activeOpnameRecord.createdAt ? new Date(activeOpnameRecord.createdAt).getTime() : new Date(`${startDate}T00:00:01`).getTime();
+          if (t.timestamp <= opnameMs) return false;
+        }
+        return true;
+      });
 
       const inKgs = sumT(dayInTrx, 'kgs');
       const inPcs = sumT(dayInTrx, 'pcs');
       const outKgs = sumT(dayOutTrx, 'kgs');
       const outPcs = sumT(dayOutTrx, 'pcs');
 
-      // Ending Stock
-      const endingKgs = openingKgs + inKgs - outKgs;
-      const endingPcs = openingPcs + inPcs - outPcs;
+      // 6. Ending Stock = Stok Awal Setelah SO + In - Out
+      const endingKgs = Math.max(0, openingAfterSOKgs + inKgs - outKgs);
+      const endingPcs = Math.max(0, openingAfterSOPcs + inPcs - outPcs);
 
       return {
         name: label,
-        openingKgs,
-        openingPcs,
+        openingBeforeSOKgs,
+        openingBeforeSOPcs,
+        soKgs,
+        soPcs,
+        diffKgs,
+        diffPcs,
+        openingAfterSOKgs,
+        openingAfterSOPcs,
         inKgs,
         inPcs,
         outKgs,
@@ -407,21 +549,71 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
 
     // Add WIP Overall Row
     const wipRow = processGroup(i => !!i.isWIP, 'TOTAL WIP', true);
-    const hasOpnameWip = activeOpnameRecord && activeOpnameRecord.items.some(it => it.isWIP);
-    if (wipRow.openingKgs > 0 || wipRow.inKgs > 0 || wipRow.outKgs > 0 || wipRow.openingPcs > 0 || wipRow.inPcs > 0 || wipRow.outPcs > 0 || hasOpnameWip) {
+    const hasOpnameWip = targetOpname && targetOpname.items.some(it => it.isWIP);
+    if (wipRow.openingBeforeSOKgs > 0 || wipRow.inKgs > 0 || wipRow.outKgs > 0 || wipRow.openingBeforeSOPcs > 0 || wipRow.inPcs > 0 || wipRow.outPcs > 0 || (hasOpnameWip && wipRow.soKgs !== null)) {
       rows.push(wipRow);
     }
 
     // Add Individual Items Row (Non-WIP)
     itemCodes.forEach((code: string) => {
-      const row = processGroup(i => i.itemCode === code && !i.isWIP, code);
-      if (row.openingKgs > 0 || row.inKgs > 0 || row.outKgs > 0 || row.openingPcs > 0 || row.inPcs > 0 || row.outPcs > 0) {
+      const row = processGroup(i => resolveToMasterCode(i.itemCode, i.itemName) === code && !i.isWIP, code);
+      if (row.openingBeforeSOKgs > 0 || row.inKgs > 0 || row.outKgs > 0 || row.openingBeforeSOPcs > 0 || row.inPcs > 0 || row.outPcs > 0 || row.soKgs !== null) {
         rows.push(row);
       }
     });
 
     return rows;
-  }, [items, startDate, endDate, transactionsByChillerId, activeOpnameRecord]);
+  }, [items, startDate, endDate, transactionsByChillerId, activeOpnameRecord, mostRecentOpnameRecord, itemsList, opnameRecords]);
+
+  const getRowTableBreakdown = (row: StockRow) => {
+    const startRange = new Date(startDate).setHours(0, 0, 0, 0);
+    const endRange = new Date(endDate).setHours(23, 59, 59, 999);
+
+    const isWIPRow = !!row.isWIPGroup;
+    const groupItems = isWIPRow
+      ? items.filter(i => !!i.isWIP)
+      : items.filter(i => resolveToMasterCode(i.itemCode, i.itemName) === row.name && !i.isWIP);
+
+    const groupTrx: Transaction[] = [];
+    groupItems.forEach(i => {
+      const batchTrxs = transactionsByChillerId[i.batchId];
+      if (batchTrxs) groupTrx.push(...batchTrxs);
+    });
+
+    const dayInTrx = groupTrx.filter(t => t.type === 'IN' && t.timestamp >= startRange && t.timestamp <= endRange && (!t.note || !t.note.includes('[STOCK OPNAME]')));
+    const dayOutTrx = groupTrx.filter(t => t.type === 'OUT' && t.timestamp >= startRange && t.timestamp <= endRange);
+
+    const inMap: Record<string, number> = {};
+    dayInTrx.forEach(t => {
+      const val = unit === 'KGS' ? t.kgs : t.pcs;
+      const item = groupItems.find(i => i.batchId === t.chillerId);
+      const src = (item?.source || 'INFLOW').toUpperCase();
+      const norm = normalizeCategory(src);
+      inMap[norm] = (inMap[norm] || 0) + val;
+    });
+
+    const outMap: Record<string, number> = {};
+    dayOutTrx.forEach(t => {
+      const val = unit === 'KGS' ? t.kgs : t.pcs;
+      const dest = (t.destination || 'OUTFLOW').toUpperCase();
+      const norm = normalizeCategory(dest);
+      outMap[norm] = (outMap[norm] || 0) + val;
+    });
+
+    return {
+      openingBeforeSO: unit === 'KGS' ? row.openingBeforeSOKgs : row.openingBeforeSOPcs,
+      soVal: unit === 'KGS' ? row.soKgs : row.soPcs,
+      diffVal: unit === 'KGS' ? row.diffKgs : row.diffPcs,
+      openingAfterSO: unit === 'KGS' ? row.openingAfterSOKgs : row.openingAfterSOPcs,
+      categorizedInMap: inMap,
+      otherIn: 0,
+      totalIn: unit === 'KGS' ? row.inKgs : row.inPcs,
+      categorizedOutMap: outMap,
+      otherOut: 0,
+      totalOut: unit === 'KGS' ? row.outKgs : row.outPcs,
+      endingStock: unit === 'KGS' ? row.endingKgs : row.endingPcs
+    };
+  };
 
   // Secondary useMemo to get WIP batch breakdown when expanded
   const wipBreakdown = useMemo(() => {
@@ -511,7 +703,7 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
 
     const groupItems = isWIPRow
       ? items.filter(i => !!i.isWIP)
-      : items.filter(i => i.itemCode === rowName && !i.isWIP);
+      : items.filter(i => resolveToMasterCode(i.itemCode, i.itemName) === rowName && !i.isWIP);
 
     return groupItems.filter(i => {
       const batchTrx = transactionsByChillerId[i.batchId] || [];
@@ -529,56 +721,41 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
     });
   };
 
-  const getRowTableBreakdown = (rowName: string, isWIPRow: boolean = false) => {
-    const activeBatches = getRowBatches(rowName, isWIPRow);
-
-    let opening = 0;
-    let totalIn = 0;
-    let totalOut = 0;
-    let endingStock = 0;
-    const categorizedInMap: Record<string, number> = {};
-    const categorizedOutMap: Record<string, number> = {};
-
-    activeBatches.forEach(batch => {
-      const batchTbl = getBatchTableBreakdown(batch);
-      opening += batchTbl.opening;
-      totalIn += batchTbl.totalIn;
-      totalOut += batchTbl.totalOut;
-      endingStock += batchTbl.endingStock;
-
-      for (const [cat, val] of Object.entries(batchTbl.categorizedInMap)) {
-        categorizedInMap[cat] = (categorizedInMap[cat] || 0) + val;
-      }
-      for (const [cat, val] of Object.entries(batchTbl.categorizedOutMap)) {
-        categorizedOutMap[cat] = (categorizedOutMap[cat] || 0) + val;
-      }
-    });
-
-    return {
-      opening,
-      categorizedInMap,
-      otherIn: 0,
-      totalIn,
-      categorizedOutMap,
-      otherOut: 0,
-      totalOut,
-      endingStock
-    };
-  };
-
   const filteredData = reportData.filter(row =>
     row.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const downloadExcel = () => {
-    const headers = ["Item", `Opening Stock (${unit})`, `In (${unit})`, `Out (${unit})`, `Ending Stock (${unit})`];
-    const rows = filteredData.map(r => [
-      r.name,
-      unit === 'KGS' ? r.openingKgs.toFixed(2) : r.openingPcs,
-      unit === 'KGS' ? r.inKgs.toFixed(2) : r.inPcs,
-      unit === 'KGS' ? r.outKgs.toFixed(2) : r.outPcs,
-      unit === 'KGS' ? r.endingKgs.toFixed(2) : r.endingPcs,
-    ]);
+    const headers = [
+      "Item",
+      `Stok Awal Sistem (${unit})`,
+      `SO Fisik (${unit})`,
+      `Selisih (${unit})`,
+      `Stok Awal After SO (${unit})`,
+      `In (${unit})`,
+      `Out (${unit})`,
+      `Stok Akhir (${unit})`
+    ];
+    const rows = filteredData.map(r => {
+      const opBefore = unit === 'KGS' ? r.openingBeforeSOKgs : r.openingBeforeSOPcs;
+      const soVal = unit === 'KGS' ? r.soKgs : r.soPcs;
+      const diffVal = unit === 'KGS' ? r.diffKgs : r.diffPcs;
+      const opAfter = unit === 'KGS' ? r.openingAfterSOKgs : r.openingAfterSOPcs;
+      const inVal = unit === 'KGS' ? r.inKgs : r.inPcs;
+      const outVal = unit === 'KGS' ? r.outKgs : r.outPcs;
+      const endVal = unit === 'KGS' ? r.endingKgs : r.endingPcs;
+
+      return [
+        r.name,
+        unit === 'KGS' ? opBefore.toFixed(2) : opBefore,
+        soVal !== null ? (unit === 'KGS' ? soVal.toFixed(2) : soVal) : '-',
+        diffVal !== null ? (unit === 'KGS' ? diffVal.toFixed(2) : diffVal) : '-',
+        unit === 'KGS' ? opAfter.toFixed(2) : opAfter,
+        unit === 'KGS' ? inVal.toFixed(2) : inVal,
+        unit === 'KGS' ? outVal.toFixed(2) : outVal,
+        unit === 'KGS' ? endVal.toFixed(2) : endVal,
+      ];
+    });
 
     const dateLabel = startDate === endDate ? startDate : `${startDate}_to_${endDate}`;
     const worksheet = XLSX.utils.aoa_to_sheet([["LAPORAN STOK HARIAN", dateLabel], [], headers, ...rows]);
@@ -699,10 +876,10 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
             </button>
           </div>
 
-          {activeOpnameRecord && activeTab === 'REPORT' && (
+          {(activeOpnameRecord || mostRecentOpnameRecord) && activeTab === 'REPORT' && (
             <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 text-emerald-800 rounded-xl text-xs font-medium border border-emerald-100">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-              <span>Stok Awal Menggunakan Opname ({activeOpnameRecord.opnameDate})</span>
+              <span>Stok Awal Menggunakan Opname ({(activeOpnameRecord || mostRecentOpnameRecord)?.opnameDate})</span>
             </div>
           )}
         </div>
@@ -716,7 +893,7 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
         />
       ) : (
         <>
-          {activeOpnameRecord && (
+          {(activeOpnameRecord || mostRecentOpnameRecord) && (
             <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-emerald-900 shadow-sm animate-in fade-in">
               <div className="flex items-center gap-3">
                 <div className="p-2.5 bg-emerald-500 text-white rounded-xl shadow-sm shrink-0">
@@ -726,11 +903,11 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
                   <div className="text-xs font-bold flex items-center gap-2">
                     <span>Stok Awal Diselaraskan Berdasarkan Stock Opname Fisik</span>
                     <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full text-[10px] font-extrabold uppercase">
-                      {activeOpnameRecord.opnameDate}
+                      {(activeOpnameRecord || mostRecentOpnameRecord)?.opnameDate}
                     </span>
                   </div>
                   <p className="text-[11px] text-emerald-700 mt-0.5">
-                    Stok awal (opening stock) pada laporan ini dihitung langsung dari data fisik Opname: <strong>{formatNumber(activeOpnameRecord.totalPcs)} pcs</strong> / <strong className="text-emerald-900">{formatNumber(activeOpnameRecord.totalKgs, 2)} kg</strong> ({activeOpnameRecord.items.length} baris item).
+                    Stok awal (opening stock) pada laporan ini dihitung berdasarkan data fisik Opname tanggal {(activeOpnameRecord || mostRecentOpnameRecord)?.opnameDate}: <strong>{formatNumber((activeOpnameRecord || mostRecentOpnameRecord)?.totalPcs || 0)} pcs</strong> / <strong className="text-emerald-900">{formatNumber((activeOpnameRecord || mostRecentOpnameRecord)?.totalKgs || 0, 2)} kg</strong> ({(activeOpnameRecord || mostRecentOpnameRecord)?.items.length} baris item).
                   </p>
                 </div>
               </div>
@@ -872,25 +1049,28 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
                   <thead>
                     <tr className="bg-gray-50 border-b border-gray-100">
                       <th className="px-2 py-1.5 text-[8.5px] font-black text-gray-500 uppercase tracking-tight text-left min-w-[120px]">Kode Item</th>
-                      <th className="px-1.5 py-1.5 text-[8.5px] font-black text-gray-500 uppercase tracking-tight text-right min-w-[70px]">Opening</th>
+                      <th className="px-1.5 py-1.5 text-[8.5px] font-black text-gray-600 uppercase tracking-tight text-right min-w-[70px]" title="Stok Awal dari Sistem">Stok Awal (Sistem)</th>
+                      <th className="px-1.5 py-1.5 text-[8.5px] font-black text-purple-700 bg-purple-50/50 uppercase tracking-tight text-right min-w-[65px]" title="Hasil Hitung Fisik Stock Opname">SO (Fisik)</th>
+                      <th className="px-1.5 py-1.5 text-[8.5px] font-black text-amber-700 bg-amber-50/50 uppercase tracking-tight text-right min-w-[60px]" title="Selisih = Stok Awal Sebelum SO - SO Fisik">Selisih</th>
+                      <th className="px-1.5 py-1.5 text-[8.5px] font-black text-emerald-800 bg-emerald-50/50 uppercase tracking-tight text-right min-w-[75px]" title="Stok Awal Efektif Setelah SO">Stok Awal (After SO)</th>
 
                       {showDetail && activeInCats.map(cat => (
                         <th key={`in-${cat}`} className="px-1.5 py-1.5 text-[8.5px] font-black text-gray-400 uppercase tracking-tight text-right min-w-[55px]">{cat} (IN)</th>
                       ))}
-                      <th className="px-1.5 py-1.5 text-[8.5px] font-black text-green-700 bg-green-50/50 uppercase tracking-tight text-right min-w-[70px]">TOTAL IN</th>
+                      <th className="px-1.5 py-1.5 text-[8.5px] font-black text-green-700 bg-green-50/50 uppercase tracking-tight text-right min-w-[65px]">TOTAL IN</th>
 
                       {showDetail && activeOutCats.map(cat => (
                         <th key={`out-${cat}`} className="px-1.5 py-1.5 text-[8.5px] font-black text-gray-400 uppercase tracking-tight text-right min-w-[55px]">{cat} (OUT)</th>
                       ))}
-                      <th className="px-1.5 py-1.5 text-[8.5px] font-black text-blue-700 bg-blue-50/50 uppercase tracking-tight text-right min-w-[70px]">TOTAL OUT</th>
+                      <th className="px-1.5 py-1.5 text-[8.5px] font-black text-blue-700 bg-blue-50/50 uppercase tracking-tight text-right min-w-[65px]">TOTAL OUT</th>
 
-                      <th className="px-2 py-1.5 text-[8.5px] font-black text-red-700 bg-red-50/50 uppercase tracking-tight text-right min-w-[85px]">Ending Stock</th>
+                      <th className="px-2 py-1.5 text-[8.5px] font-black text-red-700 bg-red-50/50 uppercase tracking-tight text-right min-w-[75px]">Stok Akhir</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
                     {filteredData.map((row, idx) => {
                       const isWIPRow = row.isWIPGroup;
-                      const tbl = getRowTableBreakdown(row.name, isWIPRow);
+                      const tbl = getRowTableBreakdown(row);
                       const rowBatches = getRowBatches(row.name, isWIPRow);
                       const hasBatches = rowBatches.length > 0;
                       const isExpanded = !!expandedRows[row.name];
@@ -916,8 +1096,26 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
                                 </div>
                               </div>
                             </td>
-                            <td className="px-1.5 py-1.5 text-right font-mono text-[12px] text-black">
-                              {tbl.opening > 0 ? formatNumber(tbl.opening, unit === 'KGS' ? 2 : 0) : '0'}
+                            <td className="px-1.5 py-1.5 text-right font-mono text-[12px] text-gray-700">
+                              {formatNumber(tbl.openingBeforeSO, unit === 'KGS' ? 2 : 0)}
+                            </td>
+                            <td className="px-1.5 py-1.5 text-right font-mono text-[12px] font-bold text-purple-700 bg-purple-50/20">
+                              {tbl.soVal !== null ? formatNumber(tbl.soVal, unit === 'KGS' ? 2 : 0) : '-'}
+                            </td>
+                            <td className="px-1.5 py-1.5 text-right font-mono text-[12px] font-bold">
+                              {tbl.diffVal !== null ? (
+                                <span className={`px-1.5 py-0.5 rounded text-[10.5px] font-extrabold ${tbl.diffVal === 0
+                                    ? 'text-gray-400'
+                                    : tbl.diffVal < 0
+                                      ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                                      : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                                  }`}>
+                                  {tbl.diffVal > 0 ? `+${formatNumber(tbl.diffVal, unit === 'KGS' ? 2 : 0)}` : formatNumber(tbl.diffVal, unit === 'KGS' ? 2 : 0)}
+                                </span>
+                              ) : '-'}
+                            </td>
+                            <td className="px-1.5 py-1.5 text-right font-mono text-[12px] font-black text-emerald-800 bg-emerald-50/30">
+                              {formatNumber(tbl.openingAfterSO, unit === 'KGS' ? 2 : 0)}
                             </td>
                             {showDetail && activeInCats.map(cat => {
                               const val = tbl.categorizedInMap[cat] || 0;
@@ -965,7 +1163,8 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
                                     </span>
                                   </div>
                                 </td>
-                                <td className="px-1.5 py-1 text-right font-mono text-[12px] text-gray-600">
+                                <td className="px-1.5 py-1 text-right font-mono text-[12px] text-gray-600" colSpan={4}>
+                                  <span className="text-[10px] text-gray-400 italic">Batch Opening: </span>
                                   {batchTbl.opening > 0 ? formatNumber(batchTbl.opening, unit === 'KGS' ? 2 : 0) : '0'}
                                 </td>
                                 {showDetail && activeInCats.map(cat => {
@@ -1013,21 +1212,34 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
                     })}
                   </tbody>
                   {filteredData.length > 0 && (() => {
-                    const totalOpening = filteredData.reduce((acc, r) => acc + getRowTableBreakdown(r.name, r.isWIPGroup).opening, 0);
-                    const totalTotalIn = filteredData.reduce((acc, r) => acc + getRowTableBreakdown(r.name, r.isWIPGroup).totalIn, 0);
-                    const totalTotalOut = filteredData.reduce((acc, r) => acc + getRowTableBreakdown(r.name, r.isWIPGroup).totalOut, 0);
-                    const totalEndingStock = filteredData.reduce((acc, r) => acc + getRowTableBreakdown(r.name, r.isWIPGroup).endingStock, 0);
+                    const totalOpBefore = filteredData.reduce((acc, r) => acc + getRowTableBreakdown(r).openingBeforeSO, 0);
+                    const totalSO = filteredData.reduce((acc, r) => acc + (getRowTableBreakdown(r).soVal || 0), 0);
+                    const hasSO = filteredData.some(r => getRowTableBreakdown(r).soVal !== null);
+                    const totalDiff = filteredData.reduce((acc, r) => acc + (getRowTableBreakdown(r).diffVal || 0), 0);
+                    const totalOpAfter = filteredData.reduce((acc, r) => acc + getRowTableBreakdown(r).openingAfterSO, 0);
+                    const totalTotalIn = filteredData.reduce((acc, r) => acc + getRowTableBreakdown(r).totalIn, 0);
+                    const totalTotalOut = filteredData.reduce((acc, r) => acc + getRowTableBreakdown(r).totalOut, 0);
+                    const totalEndingStock = filteredData.reduce((acc, r) => acc + getRowTableBreakdown(r).endingStock, 0);
 
                     return (
                       <tfoot className="bg-gray-900 text-white font-black">
                         <tr>
                           <td className="px-2 py-2 text-[9.5px]/none font-black uppercase">Grand Total ({unit})</td>
-                          <td className="px-1.5 py-2 text-right text-[10px] font-mono font-black">
-                            {formatNumber(totalOpening, unit === 'KGS' ? 2 : 0)}
+                          <td className="px-1.5 py-2 text-right text-[10px] font-mono font-black text-gray-300">
+                            {formatNumber(totalOpBefore, unit === 'KGS' ? 2 : 0)}
+                          </td>
+                          <td className="px-1.5 py-2 text-right text-[10px] font-mono font-black text-purple-300">
+                            {hasSO ? formatNumber(totalSO, unit === 'KGS' ? 2 : 0) : '-'}
+                          </td>
+                          <td className="px-1.5 py-2 text-right text-[10px] font-mono font-black text-amber-300">
+                            {hasSO ? formatNumber(totalDiff, unit === 'KGS' ? 2 : 0) : '-'}
+                          </td>
+                          <td className="px-1.5 py-2 text-right text-[10px] font-mono font-black text-emerald-300">
+                            {formatNumber(totalOpAfter, unit === 'KGS' ? 2 : 0)}
                           </td>
 
                           {showDetail && activeInCats.map(cat => {
-                            const totalCatIn = filteredData.reduce((acc, r) => acc + (getRowTableBreakdown(r.name, r.isWIPGroup).categorizedInMap[cat] || 0), 0);
+                            const totalCatIn = filteredData.reduce((acc, r) => acc + (getRowTableBreakdown(r).categorizedInMap[cat] || 0), 0);
                             return (
                               <td key={`total-in-${cat}`} className="px-1.5 py-2 text-right text-[10px] font-mono font-black text-green-400">
                                 {totalCatIn > 0 ? formatNumber(totalCatIn, unit === 'KGS' ? 2 : 0) : ''}
@@ -1039,7 +1251,7 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
                           </td>
 
                           {showDetail && activeOutCats.map(cat => {
-                            const totalCatOut = filteredData.reduce((acc, r) => acc + (getRowTableBreakdown(r.name, r.isWIPGroup).categorizedOutMap[cat] || 0), 0);
+                            const totalCatOut = filteredData.reduce((acc, r) => acc + (getRowTableBreakdown(r).categorizedOutMap[cat] || 0), 0);
                             return (
                               <td key={`total-out-${cat}`} className="px-1.5 py-2 text-right text-[10px] font-mono font-black text-blue-400">
                                 {totalCatOut > 0 ? formatNumber(totalCatOut, unit === 'KGS' ? 2 : 0) : ''}
