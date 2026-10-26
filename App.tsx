@@ -48,6 +48,7 @@ const App: React.FC = () => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [isAboutOpen, setIsAboutOpen] = useState(false);
   const [isQuotaExceeded, setIsQuotaExceeded] = useState<boolean>(false);
+  const [fetchProgressMessage, setFetchProgressMessage] = useState<string>('');
 
   // Per-resource loading & loaded states for efficient on-demand menu loading
   const [stockLoaded, setStockLoaded] = useState(false);
@@ -67,38 +68,53 @@ const App: React.FC = () => {
   const trxLoadedRef = useRef(false);
   trxLoadedRef.current = trxLoaded;
 
-  // Helper: fetch ALL rows from a Supabase table using pagination with specific column selections
-  const fetchAllRows = useCallback(async (table: string, orderCol: string, selectCols = '*') => {
+  // Helper: fetch ALL rows from a Supabase table using Cursor/Keyset-based Pagination with orderCol and id
+  const fetchAllRowsCursor = useCallback(async (table: string, orderCol: string, selectCols = '*') => {
     const PAGE_SIZE = 1000;
     let allData: any[] = [];
-    let from = 0;
     let keepGoing = true;
+    let lastCursorVal: any = null;
+    let lastCursorId: any = null;
 
     try {
+      setFetchProgressMessage(`Memulai pengambilan data ${table}...`);
       while (keepGoing) {
-        let { data, error } = await supabase
+        let query = supabase
           .from(table)
           .select(selectCols)
           .order(orderCol, { ascending: false })
-          .range(from, from + PAGE_SIZE - 1);
+          .order('id', { ascending: false })
+          .limit(PAGE_SIZE);
+
+        if (lastCursorVal !== null && lastCursorId !== null) {
+          query = query.or(`${orderCol}.lt.${lastCursorVal},and(${orderCol}.eq.${lastCursorVal},id.lt.${lastCursorId})`);
+        }
+
+        let { data, error } = await query;
 
         if (error && selectCols !== '*') {
           console.warn(`Fetch error on table '${table}' with columns '${selectCols}', falling back to '*':`, error);
-          const retry1 = await supabase
+          let fallbackQuery = supabase
             .from(table)
             .select('*')
             .order(orderCol, { ascending: false })
-            .range(from, from + PAGE_SIZE - 1);
+            .order('id', { ascending: false })
+            .limit(PAGE_SIZE);
+          if (lastCursorVal !== null && lastCursorId !== null) {
+            fallbackQuery = fallbackQuery.or(`${orderCol}.lt.${lastCursorVal},and(${orderCol}.eq.${lastCursorVal},id.lt.${lastCursorId})`);
+          }
+          const retry1 = await fallbackQuery;
           data = retry1.data;
           error = retry1.error;
         }
 
         if (error) {
           console.warn(`Fetch error on table '${table}' with ordering '${orderCol}', falling back to no order:`, error);
-          const retry2 = await supabase
+          let fallbackQuery2 = supabase
             .from(table)
             .select('*')
-            .range(from, from + PAGE_SIZE - 1);
+            .limit(PAGE_SIZE);
+          const retry2 = await fallbackQuery2;
           data = retry2.data;
           error = retry2.error;
         }
@@ -117,13 +133,22 @@ const App: React.FC = () => {
 
         if (data && data.length > 0) {
           allData = allData.concat(data);
-          from += PAGE_SIZE;
-          if (data.length < PAGE_SIZE) keepGoing = false;
+          const lastRow = data[data.length - 1];
+          lastCursorVal = lastRow[orderCol];
+          lastCursorId = (lastRow as any).id;
+
+          const dateStr = lastCursorVal ? new Date(lastCursorVal).toLocaleDateString('id-ID', { year: 'numeric', month: 'short', day: 'numeric' }) : '';
+          setFetchProgressMessage(`Mengambil data hingga tanggal: ${dateStr || lastCursorVal} (${allData.length} baris)`);
+
+          if (data.length < PAGE_SIZE) {
+            keepGoing = false;
+          }
         } else {
           keepGoing = false;
         }
       }
 
+      setFetchProgressMessage(`Selesai mengambil ${allData.length} baris dari ${table}.`);
       if (allData.length > 0) {
         saveTableCache(table, allData);
       }
@@ -132,7 +157,7 @@ const App: React.FC = () => {
       if (isEgressQuotaError(err)) {
         setIsQuotaExceeded(true);
       }
-      console.warn(`Exception fetching table '${table}', falling back to cache:`, err);
+      console.warn(`Exception fetching table '${table}' with cursor, falling back to cache:`, err);
       const cached = getTableCache(table);
       return cached || [];
     }
@@ -196,7 +221,7 @@ const App: React.FC = () => {
     if (!silent) setStockLoading(true);
     try {
       await fetchLookups();
-      const stockData = await fetchAllRows(
+      const stockData = await fetchAllRowsCursor(
         'chiller_stock',
         'created_at',
         '*'
@@ -231,14 +256,14 @@ const App: React.FC = () => {
     } finally {
       if (!silent) setStockLoading(false);
     }
-  }, [fetchAllRows, fetchLookups]);
+  }, [fetchAllRowsCursor, fetchLookups]);
 
   // Fetch only transactions (used by Dashboard, Laporan & Log, Stok Harian)
   const fetchTransactions = useCallback(async (silent = false) => {
     if (!silent) setTrxLoading(true);
     try {
       await fetchLookups();
-      const trxData = await fetchAllRows(
+      const trxData = await fetchAllRowsCursor(
         'transactions',
         'transaction_time',
         'id,batch_id,note,quantity_pcs,quantity_kgs,transaction_type,destination,user_id,transaction_time'
@@ -299,7 +324,7 @@ const App: React.FC = () => {
     } finally {
       if (!silent) setTrxLoading(false);
     }
-  }, [fetchAllRows, fetchLookups, chillerTable]);
+  }, [fetchAllRowsCursor, fetchLookups, chillerTable]);
 
   const fetchData = useCallback(async (silent = false) => {
     await Promise.all([fetchStock(silent), fetchTransactions(silent)]);
@@ -645,74 +670,78 @@ const App: React.FC = () => {
     const actualPcs = outPcs ?? item.pcs;
     const actualKgs = outKgs ?? item.kgs;
     const userRole = user.role.toUpperCase();
-
-    if (destination === 'Condem' && (userRole === 'USER' || userRole === 'ADMIN')) {
-      try {
-        const { error: stockErr } = await supabase.from('chiller_stock')
-          .update({ status: 'PENDING' })
-          .eq(item.id.includes('-') ? 'id' : 'batch_id', item.id);
-
-        if (stockErr) throw stockErr;
-
-        const { error: trxErr } = await supabase.from('transactions').insert({
-          batch_id: item.batchId,
-          note: item.itemCode,
-          destination: 'Condem',
-          quantity_pcs: actualPcs,
-          quantity_kgs: actualKgs,
-          transaction_type: 'qc_pending',
-          user_id: user.id,
-          transaction_time: new Date().toISOString()
-        });
-        if (trxErr) throw trxErr;
-
-        await fetchStock(true);
-        if (trxLoadedRef.current) await fetchTransactions(true);
-      } catch (err: any) {
-        console.error("Condem Request Error:", err);
-        alert(`Gagal mengajukan Condem: ${err?.message || err}`);
-      } finally {
-        if (!skipLoading) setIsActionLoading(false);
-      }
-      return;
-    }
+    const isCondem = destination === 'Condem' && (userRole === 'USER' || userRole === 'ADMIN');
 
     try {
-      if (actualPcs >= item.pcs) {
-        const { error: upErr } = await supabase.from('chiller_stock')
-          .update({
-            status: 'OUT',
-            quantity_pcs: 0,
-            quantity_kgs: 0
-          })
-          .eq(item.id.includes('-') ? 'id' : 'batch_id', item.id);
-        if (upErr) throw upErr;
-      } else {
-        const { error: upErr } = await supabase.from('chiller_stock')
-          .update({
-            quantity_pcs: item.pcs - actualPcs,
-            quantity_kgs: item.kgs - actualKgs
-          })
-          .eq(item.id.includes('-') ? 'id' : 'batch_id', item.id);
-        if (upErr) throw upErr;
-      }
-
-      const { error: trxErr } = await supabase.from('transactions').insert({
-        batch_id: item.batchId,
-        note: item.itemCode,
-        destination: destination,
-        quantity_pcs: actualPcs,
-        quantity_kgs: actualKgs,
-        transaction_type: 'out',
-        user_id: user.id,
-        transaction_time: new Date().toISOString()
+      // 1. Call single Supabase RPC: process_stock_transfer
+      const { error: rpcErr } = await supabase.rpc('process_stock_transfer', {
+        p_batch_id: item.batchId,
+        p_items_id: item.itemsId,
+        p_destination: destination,
+        p_pcs: actualPcs,
+        p_kgs: actualKgs,
+        p_user_id: user.id,
+        p_is_condem: isCondem,
+        p_item_code: item.itemCode
       });
 
-      if (trxErr) throw trxErr;
+      if (rpcErr) {
+        console.warn("RPC process_stock_transfer error, falling back to direct operations:", rpcErr);
+        if (isCondem) {
+          const { error: stockErr } = await supabase.from('chiller_stock')
+            .update({ status: 'PENDING' })
+            .eq(item.id.includes('-') ? 'id' : 'batch_id', item.id);
 
-      // Virtual Inventory Update: If destination is NOT 'Delive' or 'Condem', add to it
-      if (destination !== 'Delive' && destination !== 'Condem') {
-        await updateVirtualStock(destination, item.itemsId, actualPcs, actualKgs, 'ADD');
+          if (stockErr) throw stockErr;
+
+          const { error: trxErr } = await supabase.from('transactions').insert({
+            batch_id: item.batchId,
+            note: item.itemCode,
+            destination: 'Condem',
+            quantity_pcs: actualPcs,
+            quantity_kgs: actualKgs,
+            transaction_type: 'qc_pending',
+            user_id: user.id,
+            transaction_time: new Date().toISOString()
+          });
+          if (trxErr) throw trxErr;
+        } else {
+          if (actualPcs >= item.pcs) {
+            const { error: upErr } = await supabase.from('chiller_stock')
+              .update({
+                status: 'OUT',
+                quantity_pcs: 0,
+                quantity_kgs: 0
+              })
+              .eq(item.id.includes('-') ? 'id' : 'batch_id', item.id);
+            if (upErr) throw upErr;
+          } else {
+            const { error: upErr } = await supabase.from('chiller_stock')
+              .update({
+                quantity_pcs: item.pcs - actualPcs,
+                quantity_kgs: item.kgs - actualKgs
+              })
+              .eq(item.id.includes('-') ? 'id' : 'batch_id', item.id);
+            if (upErr) throw upErr;
+          }
+
+          const { error: trxErr } = await supabase.from('transactions').insert({
+            batch_id: item.batchId,
+            note: item.itemCode,
+            destination: destination,
+            quantity_pcs: actualPcs,
+            quantity_kgs: actualKgs,
+            transaction_type: 'out',
+            user_id: user.id,
+            transaction_time: new Date().toISOString()
+          });
+
+          if (trxErr) throw trxErr;
+
+          if (destination !== 'Delive' && destination !== 'Condem') {
+            await updateVirtualStock(destination, item.itemsId, actualPcs, actualKgs, 'ADD');
+          }
+        }
       }
 
       await fetchStock(true);
@@ -731,6 +760,7 @@ const App: React.FC = () => {
     let successCount = 0;
     let failCount = 0;
     let lastErrorMsg = "";
+    const userRole = user.role.toUpperCase();
 
     for (const id of ids) {
       try {
@@ -739,49 +769,63 @@ const App: React.FC = () => {
 
         const actualPcs = item.pcs;
         const actualKgs = item.kgs;
+        const isCondem = destination === 'Condem' && (userRole === 'USER' || userRole === 'ADMIN');
 
-        if (destination === 'Condem' && (user.role.toUpperCase() === 'USER' || user.role.toUpperCase() === 'ADMIN')) {
-          const { error: stockErr } = await supabase.from('chiller_stock')
-            .update({ status: 'PENDING' })
-            .eq(id.includes('-') ? 'id' : 'batch_id', id);
-          if (stockErr) throw stockErr;
+        const { error: rpcErr } = await supabase.rpc('process_stock_transfer', {
+          p_batch_id: item.batchId,
+          p_items_id: item.itemsId,
+          p_destination: destination,
+          p_pcs: actualPcs,
+          p_kgs: actualKgs,
+          p_user_id: user.id,
+          p_is_condem: isCondem,
+          p_item_code: item.itemCode
+        });
 
-          const { error: trxErr } = await supabase.from('transactions').insert({
-            batch_id: item.batchId,
-            note: item.itemCode,
-            destination: 'Condem',
-            quantity_pcs: actualPcs,
-            quantity_kgs: actualKgs,
-            transaction_type: 'qc_pending',
-            user_id: user.id,
-            transaction_time: new Date().toISOString()
-          });
-          if (trxErr) throw trxErr;
-        } else {
-          const { error: upErr } = await supabase.from('chiller_stock')
-            .update({
-              status: 'OUT',
-              quantity_pcs: 0,
-              quantity_kgs: 0
-            })
-            .eq(id.includes('-') ? 'id' : 'batch_id', id);
-          if (upErr) throw upErr;
+        if (rpcErr) {
+          console.warn("RPC process_stock_transfer error in batch, falling back:", rpcErr);
+          if (isCondem) {
+            const { error: stockErr } = await supabase.from('chiller_stock')
+              .update({ status: 'PENDING' })
+              .eq(id.includes('-') ? 'id' : 'batch_id', id);
+            if (stockErr) throw stockErr;
 
-          const { error: trxErr } = await supabase.from('transactions').insert({
-            batch_id: item.batchId,
-            note: item.itemCode,
-            destination: destination,
-            quantity_pcs: actualPcs,
-            quantity_kgs: actualKgs,
-            transaction_type: 'out',
-            user_id: user.id,
-            transaction_time: new Date().toISOString()
-          });
-          if (trxErr) throw trxErr;
+            const { error: trxErr } = await supabase.from('transactions').insert({
+              batch_id: item.batchId,
+              note: item.itemCode,
+              destination: 'Condem',
+              quantity_pcs: actualPcs,
+              quantity_kgs: actualKgs,
+              transaction_type: 'qc_pending',
+              user_id: user.id,
+              transaction_time: new Date().toISOString()
+            });
+            if (trxErr) throw trxErr;
+          } else {
+            const { error: upErr } = await supabase.from('chiller_stock')
+              .update({
+                status: 'OUT',
+                quantity_pcs: 0,
+                quantity_kgs: 0
+              })
+              .eq(id.includes('-') ? 'id' : 'batch_id', id);
+            if (upErr) throw upErr;
 
-          // Virtual Inventory Update
-          if (destination !== 'Delive' && destination !== 'Condem') {
-            await updateVirtualStock(destination, item.itemsId, actualPcs, actualKgs, 'ADD');
+            const { error: trxErr } = await supabase.from('transactions').insert({
+              batch_id: item.batchId,
+              note: item.itemCode,
+              destination: destination,
+              quantity_pcs: actualPcs,
+              quantity_kgs: actualKgs,
+              transaction_type: 'out',
+              user_id: user.id,
+              transaction_time: new Date().toISOString()
+            });
+            if (trxErr) throw trxErr;
+
+            if (destination !== 'Delive' && destination !== 'Condem') {
+              await updateVirtualStock(destination, item.itemsId, actualPcs, actualKgs, 'ADD');
+            }
           }
         }
         successCount++;
@@ -1113,6 +1157,11 @@ const App: React.FC = () => {
           <div className="h-full flex flex-col items-center justify-center text-gray-400 gap-4 min-h-[400px]">
             <div className="w-12 h-12 border-4 border-red-100 border-t-red-600 rounded-full animate-spin"></div>
             <span className="text-[10px] font-black uppercase tracking-[0.3em]">{viewLoadingLabel}</span>
+            {fetchProgressMessage && (
+              <span className="text-xs font-bold text-gray-700 bg-white px-4 py-2 rounded-xl shadow-sm border border-gray-100 animate-in fade-in">
+                {fetchProgressMessage}
+              </span>
+            )}
           </div>
         ) : (
           <div className="max-w-7xl mx-auto pb-20 md:pb-0">
