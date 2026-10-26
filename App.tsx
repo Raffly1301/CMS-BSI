@@ -49,6 +49,10 @@ const App: React.FC = () => {
   const [isAboutOpen, setIsAboutOpen] = useState(false);
   const [isQuotaExceeded, setIsQuotaExceeded] = useState<boolean>(false);
   const [fetchProgressMessage, setFetchProgressMessage] = useState<string>('');
+  const [dashboardDateRange, setDashboardDateRange] = useState<{ start?: string, end?: string }>({
+    start: new Date().toISOString().split('T')[0] + 'T00:00:00.000Z',
+    end: new Date().toISOString().split('T')[0] + 'T23:59:59.999Z'
+  });
 
   // Per-resource loading & loaded states for efficient on-demand menu loading
   const [stockLoaded, setStockLoaded] = useState(false);
@@ -69,7 +73,7 @@ const App: React.FC = () => {
   trxLoadedRef.current = trxLoaded;
 
   // Helper: fetch ALL rows from a Supabase table using Cursor/Keyset-based Pagination with orderCol and id
-  const fetchAllRowsCursor = useCallback(async (table: string, orderCol: string, selectCols = '*') => {
+  const fetchAllRowsCursor = useCallback(async (table: string, orderCol: string, selectCols = '*', dateStart?: string, dateEnd?: string) => {
     const PAGE_SIZE = 1000;
     let allData: any[] = [];
     let keepGoing = true;
@@ -85,6 +89,13 @@ const App: React.FC = () => {
           .order(orderCol, { ascending: false })
           .order('id', { ascending: false })
           .limit(PAGE_SIZE);
+
+        if (dateStart) {
+          query = query.gte(orderCol, dateStart);
+        }
+        if (dateEnd) {
+          query = query.lte(orderCol, dateEnd);
+        }
 
         if (lastCursorVal !== null && lastCursorId !== null) {
           query = query.or(`${orderCol}.lt.${lastCursorVal},and(${orderCol}.eq.${lastCursorVal},id.lt.${lastCursorId})`);
@@ -259,14 +270,16 @@ const App: React.FC = () => {
   }, [fetchAllRowsCursor, fetchLookups]);
 
   // Fetch only transactions (used by Dashboard, Laporan & Log, Stok Harian)
-  const fetchTransactions = useCallback(async (silent = false) => {
+  const fetchTransactions = useCallback(async (silent = false, dateStart?: string, dateEnd?: string) => {
     if (!silent) setTrxLoading(true);
     try {
       await fetchLookups();
       const trxData = await fetchAllRowsCursor(
         'transactions',
         'transaction_time',
-        'id,batch_id,note,quantity_pcs,quantity_kgs,transaction_type,destination,user_id,transaction_time'
+        'id,batch_id,note,quantity_pcs,quantity_kgs,transaction_type,destination,user_id,transaction_time',
+        dateStart,
+        dateEnd
       );
 
       const mappedTrx: Transaction[] = (trxData || []).map((item: any) => ({
@@ -373,7 +386,15 @@ const App: React.FC = () => {
     }
 
     // Views that require both stock and transactions
-    if (activeView === 'DASHBOARD' || activeView === 'REPORTS' || activeView === 'DAILY_REPORT') {
+    if (activeView === 'DASHBOARD') {
+      if (!stockLoadedRef.current) {
+        fetchStock();
+      }
+      fetchTransactions(false, dashboardDateRange.start, dashboardDateRange.end);
+      return;
+    }
+
+    if (activeView === 'REPORTS' || activeView === 'DAILY_REPORT') {
       if (!stockLoadedRef.current) {
         fetchStock();
       }
@@ -381,7 +402,7 @@ const App: React.FC = () => {
         fetchTransactions();
       }
     }
-  }, [activeView, isAuthenticated, fetchStock, fetchTransactions]);
+  }, [activeView, isAuthenticated, fetchStock, fetchTransactions, dashboardDateRange]);
 
   // Real-time synchronization only for data that has already been loaded by the user
   useEffect(() => {
@@ -1165,7 +1186,10 @@ const App: React.FC = () => {
           </div>
         ) : (
           <div className="max-w-7xl mx-auto pb-20 md:pb-0">
-            {activeView === 'DASHBOARD' && <Dashboard items={chillerTable} transactions={transactionTable} onNavigate={setActiveView} />}
+            {activeView === 'DASHBOARD' && <Dashboard items={chillerTable} transactions={transactionTable} onNavigate={setActiveView} onFetchTransactionsRange={(s, e) => {
+              setDashboardDateRange({ start: s, end: e });
+              fetchTransactions(false, s, e);
+            }} />}
             {activeView === 'INFLOW' && (
               isViewer ? (
                 <div className="bg-amber-50 border border-amber-200 text-amber-800 p-6 rounded-2xl text-center space-y-2">

@@ -40,11 +40,12 @@ interface DashboardProps {
   items: ChillerItem[];
   transactions: Transaction[];
   onNavigate: (view: ViewState) => void;
+  onFetchTransactionsRange?: (startDate?: string, endDate?: string) => void;
 }
 
 type FilterPeriod = 'TODAY' | 'SINGLE_DATE' | 'RANGE' | 'GLOBAL';
 
-const Dashboard: React.FC<DashboardProps> = ({ items, transactions, onNavigate }) => {
+const Dashboard: React.FC<DashboardProps> = ({ items, transactions, onNavigate, onFetchTransactionsRange }) => {
   // Filter States
   const [filterPeriod, setFilterPeriod] = useState<FilterPeriod>('TODAY');
   const [selectedDate, setSelectedDate] = useState<string>(() => {
@@ -58,6 +59,34 @@ const Dashboard: React.FC<DashboardProps> = ({ items, transactions, onNavigate }
   const [endDate, setEndDate] = useState<string>(() => {
     return new Date().toISOString().split('T')[0];
   });
+
+  const lastRangeRef = React.useRef<{ s?: string, e?: string }>({});
+
+  React.useEffect(() => {
+    if (!onFetchTransactionsRange) return;
+    let s: string | undefined;
+    let e: string | undefined;
+
+    if (filterPeriod === 'TODAY') {
+      const todayStr = new Date().toISOString().split('T')[0];
+      s = `${todayStr}T00:00:00.000Z`;
+      e = `${todayStr}T23:59:59.999Z`;
+    } else if (filterPeriod === 'SINGLE_DATE' && selectedDate) {
+      s = `${selectedDate}T00:00:00.000Z`;
+      e = `${selectedDate}T23:59:59.999Z`;
+    } else if (filterPeriod === 'RANGE' && startDate && endDate) {
+      s = `${startDate}T00:00:00.000Z`;
+      e = `${endDate}T23:59:59.999Z`;
+    } else if (filterPeriod === 'GLOBAL') {
+      s = undefined;
+      e = undefined;
+    }
+
+    if (lastRangeRef.current.s !== s || lastRangeRef.current.e !== e) {
+      lastRangeRef.current = { s, e };
+      onFetchTransactionsRange(s, e);
+    }
+  }, [filterPeriod, selectedDate, startDate, endDate, onFetchTransactionsRange]);
   const [isExporting, setIsExporting] = useState(false);
   const [activeDetailsModal, setActiveDetailsModal] = useState<'STOK_CHILLER' | 'BARANG_MASUK' | 'BARANG_KELUAR' | 'NET_FLOW' | null>(null);
   const [modalSearch, setModalSearch] = useState('');
