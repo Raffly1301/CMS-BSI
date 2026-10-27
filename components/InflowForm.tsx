@@ -19,6 +19,7 @@ import {
   Search
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { getMasterItems } from '../lib/masterCache';
 import CalculatorPopup from './CalculatorPopup';
 
 interface InflowFormProps {
@@ -89,19 +90,11 @@ const InflowForm: React.FC<InflowFormProps> = ({ onSubmitBatch }) => {
 
   const fetchItems = async () => {
     try {
-      const { data, error } = await supabase
-        .from('items')
-        .select('id, code, description, is_active')
-        .order('code', { ascending: true });
-
-      if (error) {
-        console.error("Supabase Error (Table items):", error.message);
-      } else if (data) {
-        const activeItems = data.filter((item: any) => item.is_active !== false);
-        setAvailableItems(activeItems);
-      }
+      const { list } = await getMasterItems();
+      const activeItems = list.filter(item => item.is_active !== false);
+      setAvailableItems(activeItems);
     } catch (err) {
-      console.error("Connection Error:", err);
+      console.error("Master items load error:", err);
     }
   };
 

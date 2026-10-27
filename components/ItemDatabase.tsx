@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { ItemMaster, User } from '../types';
 import { saveTableCache, getTableCache } from '../lib/cacheHelper';
-import { invalidateMasterCache } from '../lib/masterCache';
+import { getMasterItems, invalidateMasterCache } from '../lib/masterCache';
 import {
   Plus,
   Trash2,
@@ -44,26 +44,17 @@ const ItemDatabase: React.FC<ItemDatabaseProps> = ({ user }) => {
   const [editName, setEditName] = useState('');
   const [editCategory, setEditCategory] = useState('');
 
-  const fetchItems = async (silent = false) => {
-    if (!silent) setLoading(true);
+  const fetchItems = async (forceRefresh = false) => {
+    if (!forceRefresh && items.length === 0) setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('items')
-        .select('id, code, description, category, is_active')
-        .order('code', { ascending: true });
-
-      if (error) throw error;
-      if (data) {
-        setItems(data);
-        saveTableCache('items', data);
-        invalidateMasterCache();
-      }
+      const { list } = await getMasterItems(forceRefresh);
+      setItems(list);
     } catch (err) {
       console.error('Error fetching items, loading from cache:', err);
       const cached = getTableCache('items');
       if (cached) setItems(cached);
     } finally {
-      if (!silent) setLoading(false);
+      setLoading(false);
     }
   };
 
@@ -97,7 +88,7 @@ const ItemDatabase: React.FC<ItemDatabaseProps> = ({ user }) => {
       setNewName('');
       setNewCategory('');
       setIsAdding(false);
-      fetchItems();
+      fetchItems(true);
     } catch (err: any) {
       console.error('Error adding item:', err);
       setError(err.message || 'Gagal menambahkan item');
@@ -116,7 +107,7 @@ const ItemDatabase: React.FC<ItemDatabaseProps> = ({ user }) => {
         .eq('id', id);
 
       if (error) throw error;
-      fetchItems();
+      fetchItems(true);
     } catch (err) {
       console.error('Error deleting item:', err);
       alert('Gagal menghapus item. Item mungkin sedang digunakan dalam transaksi.');
@@ -183,7 +174,7 @@ const ItemDatabase: React.FC<ItemDatabaseProps> = ({ user }) => {
       setEditCode('');
       setEditName('');
       setEditCategory('');
-      fetchItems();
+      fetchItems(true);
     } catch (err: any) {
       console.error('Error updating item:', err);
       setError(err.message || 'Gagal mengubah item');
@@ -214,30 +205,17 @@ const ItemDatabase: React.FC<ItemDatabaseProps> = ({ user }) => {
       const wb = XLSX.utils.book_new();
 
       for (const tableName of tablesToExport) {
-        let allRows: any[] = [];
-        let from = 0;
-        const PAGE_SIZE = 1000;
-        let keepGoing = true;
+        const { data, error } = await supabase
+          .from(tableName)
+          .select('*')
+          .limit(300);
 
-        while (keepGoing) {
-          const { data, error } = await supabase
-            .from(tableName)
-            .select('*')
-            .range(from, from + PAGE_SIZE - 1);
-
-          if (error) {
-            console.error(`Gagal mengambil data dari ${tableName}:`, error);
-            break;
-          }
-
-          if (data && data.length > 0) {
-            allRows = allRows.concat(data);
-            from += PAGE_SIZE;
-            if (data.length < PAGE_SIZE) keepGoing = false;
-          } else {
-            keepGoing = false;
-          }
+        if (error) {
+          console.error(`Gagal mengambil data dari ${tableName}:`, error);
+          continue;
         }
+
+        const allRows = data || [];
 
         const cleanedRows = allRows.map(row => {
           if (tableName === 'users' && row.password) {

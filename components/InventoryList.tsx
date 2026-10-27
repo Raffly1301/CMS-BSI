@@ -134,8 +134,16 @@ const InventoryList: React.FC<InventoryListProps> = ({
    * Helper to build Postgres query filters based on current state
    */
   const applyServerFilters = useCallback((query: any, searchStr: string) => {
-    // Only query active stock in chiller
-    let q = query.in('status', ['IN', 'IN_CHILLER', 'PENDING', 'QC_PENDING', 'APPROVED']);
+    // Restrict stock data fetching to the last 2 weeks (14 days)
+    const twoWeeksAgo = new Date();
+    twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
+    twoWeeksAgo.setHours(0, 0, 0, 0);
+    const twoWeeksAgoISO = twoWeeksAgo.toISOString();
+
+    // Only query active stock in chiller from the last 2 weeks
+    let q = query
+      .in('status', ['IN', 'IN_CHILLER', 'PENDING', 'QC_PENDING', 'APPROVED'])
+      .gte('created_at', twoWeeksAgoISO);
 
     if (searchStr.trim()) {
       const term = searchStr.trim().toLowerCase();
@@ -179,10 +187,32 @@ const InventoryList: React.FC<InventoryListProps> = ({
   }, [filterSource, filterAllocation, filterWIP, filterProdDate, filterSlaughterDate]);
 
   /**
-   * Fetch summary metrics (Total Pcs, Total Kgs, Unique PD count) across the full filtered dataset
+   * Fetch summary metrics (Total Pcs, Total Kgs, Unique PD count)
+   * Uses RPC get_chiller_stock_summary for super-fast summary without fetching thousands of rows
    */
   const fetchSummaryMetrics = useCallback(async (searchStr: string) => {
     try {
+      // 1. Try super-fast RPC call first if default filter
+      const isDefaultFilter = !searchStr.trim() && filterSource === 'ALL' && filterAllocation === 'ALL' && filterWIP === 'ALL' && !filterProdDate && !filterSlaughterDate;
+      if (isDefaultFilter) {
+        const { data: rpcData, error: rpcError } = await supabase.rpc('get_chiller_stock_summary');
+        if (!rpcError && rpcData && Array.isArray(rpcData)) {
+          let totalPcs = 0;
+          let totalKgs = 0;
+          rpcData.forEach((row: any) => {
+            totalPcs += Number(row.total_pcs || row.quantity_pcs || row.pcs || 0);
+            totalKgs += Number(row.total_kgs || row.quantity_kgs || row.kgs || 0);
+          });
+          setSummaryTotals(prev => ({
+            ...prev,
+            pcs: totalPcs,
+            kgs: totalKgs
+          }));
+          return;
+        }
+      }
+
+      // 2. Fallback / Filtered summary query
       let q = supabase.from('chiller_stock').select('quantity_pcs, quantity_kgs, production_date');
       q = applyServerFilters(q, searchStr);
 
@@ -213,7 +243,7 @@ const InventoryList: React.FC<InventoryListProps> = ({
     } catch (e) {
       console.warn('Failed to fetch summary metrics:', e);
     }
-  }, [applyServerFilters]);
+  }, [applyServerFilters, filterSource, filterAllocation, filterWIP, filterProdDate, filterSlaughterDate]);
 
   /**
    * Primary Server-Side Paginated Fetch for chiller_stock
@@ -297,7 +327,11 @@ const InventoryList: React.FC<InventoryListProps> = ({
       if (isReset) {
         setChillerItems(mappedData);
       } else {
-        setChillerItems(prev => [...prev, ...mappedData]);
+        setChillerItems(prev => {
+          const existingIds = new Set(prev.map(i => i.id));
+          const newItems = mappedData.filter(i => !existingIds.has(i.id));
+          return [...prev, ...newItems];
+        });
       }
 
       const loadedSoFar = (pageNum + 1) * PAGE_SIZE;
@@ -558,7 +592,7 @@ const InventoryList: React.FC<InventoryListProps> = ({
         <div>
           <h2 className="text-xl md:text-2xl font-black text-gray-900 tracking-tight uppercase">Stok Chiller</h2>
           <p className="text-[8px] md:text-[10px] text-gray-500 font-bold uppercase tracking-widest">
-            Manajemen Inventori
+            Manajemen Inventori • 2 Minggu Terakhir
           </p>
         </div>
         <div className="flex items-center gap-2 w-full md:w-auto">
@@ -683,14 +717,14 @@ const InventoryList: React.FC<InventoryListProps> = ({
             <span className="text-xs font-black text-gray-400 uppercase tracking-widest">Memuat Stok Chiller...</span>
           </div>
         ) : chillerItems.length > 0 ? (
-          chillerItems.map((item) => {
+          chillerItems.map((item, index) => {
             const isSelected = selectedItemIds.includes(item.id);
             const isPendingQC = item.status === 'PENDING_QC';
             const userRole = user?.role?.toUpperCase() || '';
 
             return (
               <div
-                key={item.id}
+                key={`${item.id}-${index}`}
                 onClick={() => !isViewer && toggleSelection(item.id)}
                 className={`
                   group relative bg-white rounded-2xl overflow-hidden border-2 transition-all flex flex-col

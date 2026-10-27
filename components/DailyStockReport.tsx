@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { ChillerItem, Transaction, User, ItemMaster, StockOpnameRecord } from '../types';
-import { formatNumber } from '@/utils';
+import { formatNumber, getTodayString } from '@/utils';
 import {
   Calendar,
   FileText,
@@ -75,12 +75,8 @@ interface StockRow {
 const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions, user, onRefresh }) => {
   const [activeTab, setActiveTab] = useState<'REPORT' | 'OPNAME'>('REPORT');
   const [opnameRecords, setOpnameRecords] = useState<StockOpnameRecord[]>([]);
-  const [startDate, setStartDate] = useState<string>(
-    new Date().toISOString().split('T')[0]
-  );
-  const [endDate, setEndDate] = useState<string>(
-    new Date().toISOString().split('T')[0]
-  );
+  const [startDate, setStartDate] = useState<string>(getTodayString());
+  const [endDate, setEndDate] = useState<string>(getTodayString());
   const [unit, setUnit] = useState<'KGS' | 'PCS'>('KGS');
   const [searchTerm, setSearchTerm] = useState('');
   const [showDetail, setShowDetail] = useState<boolean>(false);
@@ -107,6 +103,58 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
 
   // Master items list
   const [itemsList, setItemsList] = useState<ItemMaster[]>([]);
+
+  // Range transactions fetched directly from Supabase Postgres according to date filter
+  const [rangeTransactions, setRangeTransactions] = useState<Transaction[]>([]);
+  const [hasFetchedRange, setHasFetchedRange] = useState<boolean>(false);
+  const [isFetchingRange, setIsFetchingRange] = useState<boolean>(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    const loadTransactionsForRange = async () => {
+      try {
+        setIsFetchingRange(true);
+        const endIso = new Date(`${endDate}T23:59:59.999`).toISOString();
+
+        let query = supabase
+          .from('transactions')
+          .select('id,batch_id,note,quantity_pcs,quantity_kgs,transaction_type,destination,user_id,transaction_time')
+          .lte('transaction_time', endIso)
+          .order('transaction_time', { ascending: false });
+
+        const { data, error } = await query;
+        if (!error && data && isMounted) {
+          const mapped: Transaction[] = data.map((item: any) => ({
+            id: String(item.id),
+            chillerId: String(item.batch_id || 'N/A'),
+            itemCode: item.note || undefined,
+            userId: item.user_id,
+            type: (item.transaction_type || '').toUpperCase() as any,
+            destination: item.destination,
+            pcs: Number(item.quantity_pcs || 0),
+            kgs: Number(item.quantity_kgs || 0),
+            timestamp: item.transaction_time ? new Date(item.transaction_time).getTime() : Date.now(),
+            note: item.note
+          }));
+          setRangeTransactions(mapped);
+          setHasFetchedRange(true);
+        }
+      } catch (e) {
+        console.warn('Failed to fetch range transactions for DailyStockReport:', e);
+      } finally {
+        if (isMounted) setIsFetchingRange(false);
+      }
+    };
+
+    loadTransactionsForRange();
+    return () => {
+      isMounted = false;
+    };
+  }, [startDate, endDate]);
+
+  const activeTransactions = useMemo(() => {
+    return hasFetchedRange ? rangeTransactions : transactions;
+  }, [hasFetchedRange, rangeTransactions, transactions]);
 
   const loadOpnames = async () => {
     try {
@@ -295,24 +343,24 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
   // Pre-group transactions by chillerId for faster performance (avoids O(N*T) loop)
   const transactionsByChillerId = useMemo(() => {
     const map: Record<string, Transaction[]> = {};
-    transactions.forEach(t => {
+    activeTransactions.forEach(t => {
       if (!map[t.chillerId]) {
         map[t.chillerId] = [];
       }
       map[t.chillerId].push(t);
     });
     return map;
-  }, [transactions]);
+  }, [activeTransactions]);
 
   // Find active categories for IN and OUT in the selected date range
   const { activeInCats, activeOutCats } = useMemo(() => {
-    const startRange = new Date(startDate).setHours(0, 0, 0, 0);
-    const endRange = new Date(endDate).setHours(23, 59, 59, 999);
+    const startRange = new Date(`${startDate}T00:00:00`).getTime();
+    const endRange = new Date(`${endDate}T23:59:59.999`).getTime();
 
     const activeInSet = new Set<string>();
     const activeOutSet = new Set<string>();
 
-    transactions.forEach(t => {
+    activeTransactions.forEach(t => {
       if (t.timestamp >= startRange && t.timestamp <= endRange) {
         if (t.type === 'IN') {
           const item = items.find(i => i.batchId === t.chillerId);
@@ -340,7 +388,7 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
       activeInCats: activeIn,
       activeOutCats: activeOut
     };
-  }, [startDate, endDate, transactions, items]);
+  }, [startDate, endDate, activeTransactions, items]);
 
   // Helper to map any code/description to official Master Item code
   const resolveToMasterCode = (rawCode?: string, rawName?: string): string => {
@@ -364,8 +412,8 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
   };
 
   const reportData = useMemo(() => {
-    const startRange = new Date(startDate).setHours(0, 0, 0, 0);
-    const endRange = new Date(endDate).setHours(23, 59, 59, 999);
+    const startRange = new Date(`${startDate}T00:00:00`).getTime();
+    const endRange = new Date(`${endDate}T23:59:59.999`).getTime();
 
     const targetOpname = activeOpnameRecord || mostRecentOpnameRecord;
 
@@ -376,7 +424,7 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
       if (official && official !== 'N/A') rawCodesSet.add(official);
     });
 
-    transactions.forEach(t => {
+    activeTransactions.forEach(t => {
       const matchedItem = items.find(i => i.batchId === t.chillerId);
       const official = resolveToMasterCode(matchedItem?.itemCode || t.itemCode, matchedItem?.itemName);
       if (official && official !== 'N/A') rawCodesSet.add(official);
@@ -396,14 +444,31 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
     const processGroup = (filterFn: (item: ChillerItem) => boolean, label: string, isWIPGroup = false) => {
       const groupItems = items.filter(filterFn);
 
-      // Look up transactions from precomputed map
-      const groupTrx: Transaction[] = [];
+      const groupTrxSet = new Set<Transaction>();
+
       groupItems.forEach(i => {
         const batchTrxs = transactionsByChillerId[i.batchId];
         if (batchTrxs) {
-          groupTrx.push(...batchTrxs);
+          batchTrxs.forEach(t => groupTrxSet.add(t));
         }
       });
+
+      activeTransactions.forEach(t => {
+        if (!groupTrxSet.has(t)) {
+          if (isWIPGroup) {
+            if (t.note?.toUpperCase().includes('WIP') || t.itemCode?.toUpperCase().includes('WIP')) {
+              groupTrxSet.add(t);
+            }
+          } else {
+            const trCode = resolveToMasterCode(t.itemCode, undefined);
+            if (trCode === label) {
+              groupTrxSet.add(t);
+            }
+          }
+        }
+      });
+
+      const groupTrx = Array.from(groupTrxSet);
 
       const sumT = (arr: Transaction[], key: 'kgs' | 'pcs') => arr.reduce((acc, curr) => acc + (curr[key] || 0), 0);
 
@@ -550,35 +615,46 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
     // Add WIP Overall Row
     const wipRow = processGroup(i => !!i.isWIP, 'TOTAL WIP', true);
     const hasOpnameWip = targetOpname && targetOpname.items.some(it => it.isWIP);
-    if (wipRow.openingBeforeSOKgs > 0 || wipRow.inKgs > 0 || wipRow.outKgs > 0 || wipRow.openingBeforeSOPcs > 0 || wipRow.inPcs > 0 || wipRow.outPcs > 0 || (hasOpnameWip && wipRow.soKgs !== null)) {
+    if (Math.abs(wipRow.openingBeforeSOKgs) > 0.001 || wipRow.inKgs > 0 || wipRow.outKgs > 0 || Math.abs(wipRow.openingBeforeSOPcs) > 0.001 || wipRow.inPcs > 0 || wipRow.outPcs > 0 || (hasOpnameWip && wipRow.soKgs !== null)) {
       rows.push(wipRow);
     }
 
     // Add Individual Items Row (Non-WIP)
     itemCodes.forEach((code: string) => {
       const row = processGroup(i => resolveToMasterCode(i.itemCode, i.itemName) === code && !i.isWIP, code);
-      if (row.openingBeforeSOKgs > 0 || row.inKgs > 0 || row.outKgs > 0 || row.openingBeforeSOPcs > 0 || row.inPcs > 0 || row.outPcs > 0 || row.soKgs !== null) {
+      if (Math.abs(row.openingBeforeSOKgs) > 0.001 || row.inKgs > 0 || row.outKgs > 0 || Math.abs(row.openingBeforeSOPcs) > 0.001 || row.inPcs > 0 || row.outPcs > 0 || row.soKgs !== null) {
         rows.push(row);
       }
     });
 
     return rows;
-  }, [items, startDate, endDate, transactionsByChillerId, activeOpnameRecord, mostRecentOpnameRecord, itemsList, opnameRecords]);
+  }, [items, startDate, endDate, transactionsByChillerId, activeOpnameRecord, mostRecentOpnameRecord, itemsList, opnameRecords, activeTransactions]);
 
   const getRowTableBreakdown = (row: StockRow) => {
-    const startRange = new Date(startDate).setHours(0, 0, 0, 0);
-    const endRange = new Date(endDate).setHours(23, 59, 59, 999);
+    const startRange = new Date(`${startDate}T00:00:00`).getTime();
+    const endRange = new Date(`${endDate}T23:59:59.999`).getTime();
 
     const isWIPRow = !!row.isWIPGroup;
     const groupItems = isWIPRow
       ? items.filter(i => !!i.isWIP)
       : items.filter(i => resolveToMasterCode(i.itemCode, i.itemName) === row.name && !i.isWIP);
 
-    const groupTrx: Transaction[] = [];
+    const groupTrxSet = new Set<Transaction>();
     groupItems.forEach(i => {
       const batchTrxs = transactionsByChillerId[i.batchId];
-      if (batchTrxs) groupTrx.push(...batchTrxs);
+      if (batchTrxs) batchTrxs.forEach(t => groupTrxSet.add(t));
     });
+
+    activeTransactions.forEach(t => {
+      if (!groupTrxSet.has(t)) {
+        if (isWIPRow) {
+          if (t.note?.toUpperCase().includes('WIP') || t.itemCode?.toUpperCase().includes('WIP')) groupTrxSet.add(t);
+        } else {
+          if (resolveToMasterCode(t.itemCode, undefined) === row.name) groupTrxSet.add(t);
+        }
+      }
+    });
+    const groupTrx = Array.from(groupTrxSet);
 
     const dayInTrx = groupTrx.filter(t => t.type === 'IN' && t.timestamp >= startRange && t.timestamp <= endRange && (!t.note || !t.note.includes('[STOCK OPNAME]')));
     const dayOutTrx = groupTrx.filter(t => t.type === 'OUT' && t.timestamp >= startRange && t.timestamp <= endRange);
@@ -617,8 +693,8 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
 
   // Secondary useMemo to get WIP batch breakdown when expanded
   const wipBreakdown = useMemo(() => {
-    const startRange = new Date(startDate).setHours(0, 0, 0, 0);
-    const endRange = new Date(endDate).setHours(23, 59, 59, 999);
+    const startRange = new Date(`${startDate}T00:00:00`).getTime();
+    const endRange = new Date(`${endDate}T23:59:59.999`).getTime();
 
     const wipItems = items.filter(i => !!i.isWIP);
 
@@ -633,13 +709,13 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
       const dayIn = sumT(batchTrx.filter(t => t.type === 'IN' && t.timestamp >= startRange && t.timestamp <= endRange), 'kgs');
       const dayOut = sumT(batchTrx.filter(t => t.type === 'OUT' && t.timestamp >= startRange && t.timestamp <= endRange), 'kgs');
 
-      return opening > 0 || dayIn > 0 || dayOut > 0;
+      return Math.abs(opening) > 0.001 || dayIn > 0 || dayOut > 0;
     });
   }, [items, transactionsByChillerId, startDate, endDate]);
 
   const getBatchTableBreakdown = (batch: ChillerItem) => {
-    const startRange = new Date(startDate).setHours(0, 0, 0, 0);
-    const endRange = new Date(endDate).setHours(23, 59, 59, 999);
+    const startRange = new Date(`${startDate}T00:00:00`).getTime();
+    const endRange = new Date(`${endDate}T23:59:59.999`).getTime();
 
     const batchTrx = transactionsByChillerId[batch.batchId] || [];
     const dayInTrx = batchTrx.filter(t => t.type === 'IN' && t.timestamp >= startRange && t.timestamp <= endRange);
@@ -698,8 +774,8 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
   };
 
   const getRowBatches = (rowName: string, isWIPRow: boolean = false) => {
-    const startRange = new Date(startDate).setHours(0, 0, 0, 0);
-    const endRange = new Date(endDate).setHours(23, 59, 59, 999);
+    const startRange = new Date(`${startDate}T00:00:00`).getTime();
+    const endRange = new Date(`${endDate}T23:59:59.999`).getTime();
 
     const groupItems = isWIPRow
       ? items.filter(i => !!i.isWIP)
@@ -765,7 +841,7 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
     // Menampilkan log transaksi harian di tab kedua
     const startRange = new Date(startDate).setHours(0, 0, 0, 0);
     const endRange = new Date(endDate).setHours(23, 59, 59, 999);
-    const dayTrx = transactions.filter(t => t.timestamp >= startRange && t.timestamp <= endRange);
+    const dayTrx = activeTransactions.filter(t => t.timestamp >= startRange && t.timestamp <= endRange);
 
     const logHeaders = ["Waktu", "Tipe", "No Batch", "Kode Item", "Nama Item", "Kg", "Pcs", "Keterangan (Sumber/Destinasi)"];
     const logRows = dayTrx.sort((a, b) => b.timestamp - a.timestamp).map(t => {

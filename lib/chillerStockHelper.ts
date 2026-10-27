@@ -268,3 +268,21 @@ export async function safeInsertStockOpname(rows: Record<string, any>[]): Promis
     throw lastError || new Error('Gagal menyimpan data ke stock_opname');
 }
 
+/**
+ * Call RPC get_chiller_stock_summary for super-fast, lightweight stock summary
+ */
+export async function getChillerStockSummary() {
+    try {
+        const { data, error } = await supabase.rpc('get_chiller_stock_summary');
+        if (error) {
+            console.warn("RPC get_chiller_stock_summary issue, using fallback:", error);
+            return { success: false, error, data: null };
+        }
+        return { success: true, data };
+    } catch (err) {
+        console.warn("Exception in getChillerStockSummary RPC:", err);
+        return { success: false, error: err, data: null };
+    }
+}
+
+

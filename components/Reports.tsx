@@ -1,7 +1,9 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { ChillerItem, Transaction, SystemLog, User } from '../types';
-import { formatNumber } from '@/utils';
+import { formatNumber, getTodayString } from '@/utils';
+import { supabase } from '../lib/supabase';
+import { getMasterUsers } from '../lib/masterCache';
 import {
   History,
   Search,
@@ -31,18 +33,115 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users, use
   const [isExporting, setIsExporting] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<Transaction['type'] | 'ALL'>('ALL');
-  const [filterStartDate, setFilterStartDate] = useState('');
-  const [filterEndDate, setFilterEndDate] = useState('');
+  const [filterStartDate, setFilterStartDate] = useState(getTodayString());
+  const [filterEndDate, setFilterEndDate] = useState(getTodayString());
   const [selectedItemCode, setSelectedItemCode] = useState<string>('');
   const [filterDestination, setFilterDestination] = useState<string>('ALL');
   const [filterSource, setFilterSource] = useState<string>('ALL');
   const [filterPD, setFilterPD] = useState<string>('');
   const [trxViewMode, setTrxViewMode] = useState<'BATCH' | 'ITEM'>('BATCH');
 
+  // Master users lookup map for UUID -> Name conversion
+  const [usersMap, setUsersMap] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    getMasterUsers().then(({ map }) => {
+      if (map) setUsersMap(map);
+    }).catch(() => {});
+  }, []);
+
+  const usersById = useMemo(() => {
+    const map: Record<string, string> = { ...usersMap };
+    (users || []).forEach(u => {
+      const name = u.fullName || u.username || u.id;
+      if (u.id) map[u.id] = name;
+      if (u.username) map[u.username] = name;
+    });
+    return map;
+  }, [users, usersMap]);
+
+  const getUserDisplayName = (userId: string) => {
+    if (!userId) return 'N/A';
+    return usersById[userId] || userId;
+  };
+
+  // Server-filtered state
+  const [serverTransactions, setServerTransactions] = useState<Transaction[] | null>(null);
+  const [isLoadingServerTrx, setIsLoadingServerTrx] = useState<boolean>(false);
+
   // Slicing/Pagination states for faster rendering of massive lists
   const [trxPage, setTrxPage] = useState(1);
   const [logsPage, setLogsPage] = useState(1);
   const ITEMS_PER_PAGE = 50;
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetchFilteredTransactions = async () => {
+      try {
+        setIsLoadingServerTrx(true);
+        let query = supabase
+          .from('transactions')
+          .select('id,batch_id,note,quantity_pcs,quantity_kgs,transaction_type,destination,user_id,transaction_time')
+          .order('transaction_time', { ascending: false });
+
+        if (filterStartDate) {
+          query = query.gte('transaction_time', new Date(`${filterStartDate}T00:00:00.000`).toISOString());
+        }
+        if (filterEndDate) {
+          query = query.lte('transaction_time', new Date(`${filterEndDate}T23:59:59.999`).toISOString());
+        }
+        if (filterType !== 'ALL') {
+          query = query.eq('transaction_type', filterType.toLowerCase());
+        }
+        if (filterDestination !== 'ALL') {
+          query = query.eq('destination', filterDestination);
+        }
+
+        const { data, error } = await query;
+        if (!error && data && isMounted) {
+          const mapped: Transaction[] = data.map((item: any) => ({
+            id: String(item.id),
+            chillerId: String(item.batch_id || 'N/A'),
+            itemCode: item.note || undefined,
+            userId: item.user_id,
+            type: (item.transaction_type || '').toUpperCase() as any,
+            destination: item.destination,
+            pcs: Number(item.quantity_pcs || 0),
+            kgs: Number(item.quantity_kgs || 0),
+            timestamp: item.transaction_time ? new Date(item.transaction_time).getTime() : Date.now(),
+            note: item.note
+          }));
+          setServerTransactions(mapped);
+        }
+      } catch (err) {
+        console.warn('Failed to fetch filtered transactions for Reports:', err);
+      } finally {
+        if (isMounted) setIsLoadingServerTrx(false);
+      }
+    };
+
+    fetchFilteredTransactions();
+    return () => {
+      isMounted = false;
+    };
+  }, [filterStartDate, filterEndDate, filterType, filterDestination, tab]);
+
+  const activeTransactions = useMemo(() => {
+    return serverTransactions !== null ? serverTransactions : transactions;
+  }, [serverTransactions, transactions]);
+
+  const activeLogs = useMemo(() => {
+    if (serverTransactions !== null) {
+      return activeTransactions.map((t, idx) => ({
+        id: `LOG-${t.id}-${idx}`,
+        userId: t.userId,
+        action: t.type,
+        details: `${t.type} untuk Batch ${t.chillerId} (${t.pcs} Pcs / ${t.kgs.toFixed(2)} Kg)${t.destination ? ` -> ${t.destination}` : ''}`,
+        timestamp: t.timestamp
+      }));
+    }
+    return logs;
+  }, [serverTransactions, activeTransactions, logs]);
 
   // Reset page when filters or tab change
   React.useEffect(() => {
@@ -66,8 +165,8 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users, use
   const allocationData = useMemo(() => {
     if (tab !== 'ALLOCATION') return [];
 
-    const startOfDay = filterStartDate ? new Date(filterStartDate).setHours(0, 0, 0, 0) : 0;
-    const endOfDay = filterEndDate ? new Date(filterEndDate).setHours(23, 59, 59, 999) : Infinity;
+    const startOfDay = filterStartDate ? new Date(`${filterStartDate}T00:00:00`).getTime() : 0;
+    const endOfDay = filterEndDate ? new Date(`${filterEndDate}T23:59:59.999`).getTime() : Infinity;
 
     // Group items by allocation
     const allocations = Array.from(new Set(items.map(i => i.allocation)));
@@ -77,7 +176,7 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users, use
       const batchIds = new Set(batchesInAlloc.map(b => b.batchId));
 
       // Find all OUT transactions for these batches within date range
-      const outTrx = transactions.filter(t =>
+      const outTrx = activeTransactions.filter(t =>
         t.type === 'OUT' &&
         batchIds.has(t.chillerId) &&
         t.timestamp >= startOfDay &&
@@ -100,7 +199,7 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users, use
         destinations: Object.entries(destBreakdown).map(([name, val]) => ({ name, ...val }))
       };
     }).filter(a => a.totalKgs > 0);
-  }, [tab, items, transactions, filterStartDate, filterEndDate]);
+  }, [tab, items, activeTransactions, filterStartDate, filterEndDate]);
 
   const stockCardData = useMemo(() => {
     if (tab !== 'STOCK_CARD' || !selectedItemCode) return [];
@@ -110,7 +209,7 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users, use
     // but we can try to find them via chillerId -> item batch mapping
     const batchIdsForItem = new Set(items.filter(i => i.itemCode === selectedItemCode).map(i => i.batchId));
 
-    const relevantTrx = transactions.filter(t =>
+    const relevantTrx = activeTransactions.filter(t =>
       t.itemCode === selectedItemCode || batchIdsForItem.has(t.chillerId)
     ).sort((a, b) => a.timestamp - b.timestamp);
 
@@ -132,10 +231,10 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users, use
         balancePcs: runningPcs
       };
     });
-  }, [tab, selectedItemCode, transactions, items]);
+  }, [tab, selectedItemCode, activeTransactions, items]);
 
   const filteredTrx = useMemo(() => {
-    return transactions.filter(t => {
+    return activeTransactions.filter(t => {
       const item = itemsByBatchId[t.chillerId];
 
       const searchStr = searchTerm.toLowerCase();
@@ -164,7 +263,7 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users, use
 
       return matchesSearch && matchesStart && matchesEnd && matchesType && matchesDestination && matchesSource && matchesPD;
     });
-  }, [transactions, itemsByBatchId, searchTerm, filterType, filterStartDate, filterEndDate, filterDestination, filterSource, filterPD]);
+  }, [activeTransactions, itemsByBatchId, searchTerm, filterType, filterStartDate, filterEndDate, filterDestination, filterSource, filterPD]);
 
   const trxSummary = useMemo(() => {
     let inPcs = 0;
@@ -258,11 +357,11 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users, use
   }, [filteredTrx, itemsByBatchId]);
 
   const filteredLogs = useMemo(() => {
-    return logs.filter(l =>
+    return activeLogs.filter(l =>
       l.action.toLowerCase().includes(searchTerm.toLowerCase()) ||
       l.details.toLowerCase().includes(searchTerm.toLowerCase())
     );
-  }, [logs, searchTerm]);
+  }, [activeLogs, searchTerm]);
 
   // Client-side paginate lists to keep performance ultra-high even with massive counts
   const visibleTrx = useMemo(() => {
@@ -276,8 +375,8 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users, use
   const resetFilters = () => {
     setSearchTerm('');
     setFilterType('ALL');
-    setFilterStartDate('');
-    setFilterEndDate('');
+    setFilterStartDate(getTodayString());
+    setFilterEndDate(getTodayString());
     setFilterDestination('ALL');
     setFilterSource('ALL');
     setFilterPD('');
@@ -673,10 +772,10 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users, use
                     </thead>
                     <tbody className="divide-y divide-gray-50">
                       {visibleTrx.length > 0 ? (
-                        visibleTrx.map(trx => {
+                        visibleTrx.map((trx, idx) => {
                           const item = itemsByBatchId[trx.chillerId];
                           return (
-                            <tr key={trx.id} className="hover:bg-gray-50/50 transition-colors">
+                            <tr key={`${trx.id}-${idx}`} className="hover:bg-gray-50/50 transition-colors">
                               <td className="px-6 py-4">
                                 <div className="text-[10px] font-black text-red-600 uppercase tracking-tighter">{trx.chillerId}</div>
                                 <div className="text-[11px] font-bold text-gray-800 uppercase">{trx.itemCode || item?.itemCode || 'Batch Selesai/Keluar'}</div>
@@ -705,7 +804,7 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users, use
                               <td className="px-6 py-4">
                                 <div className="flex items-center gap-2">
                                   <UserIcon size={12} className="text-gray-400" />
-                                  <span className="text-xs font-bold text-gray-600 uppercase">{trx.userId}</span>
+                                  <span className="text-xs font-bold text-gray-600 uppercase">{getUserDisplayName(trx.userId)}</span>
                                 </div>
                               </td>
                               <td className="px-6 py-4 text-right">
@@ -919,8 +1018,8 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users, use
           <div>
             <div className="divide-y divide-gray-100">
               {visibleLogs.length > 0 ? (
-                visibleLogs.map(log => (
-                  <div key={log.id} className="p-4 flex items-start gap-4 hover:bg-gray-50 transition-colors">
+                visibleLogs.map((log, idx) => (
+                  <div key={`${log.id}-${idx}`} className="p-4 flex items-start gap-4 hover:bg-gray-50 transition-colors">
                     <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center shrink-0"><Activity size={16} /></div>
                     <div className="flex-1">
                       <div className="flex items-center justify-between mb-1">
@@ -928,7 +1027,7 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users, use
                         <span className="text-[10px] font-bold text-gray-400">{new Date(log.timestamp).toLocaleString()}</span>
                       </div>
                       <p className="text-sm font-bold text-gray-700">{log.details}</p>
-                      <span className="text-[9px] font-bold text-gray-400 uppercase">User: {log.userId}</span>
+                      <span className="text-[9px] font-bold text-gray-400 uppercase">User: {getUserDisplayName(log.userId)}</span>
                     </div>
                   </div>
                 ))
@@ -1047,7 +1146,7 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users, use
                           </td>
                           <td className="p-2 text-right font-mono text-slate-800 border-r border-slate-200">{formatNumber(t.pcs, 0)}</td>
                           <td className="p-2 text-right font-mono font-bold text-slate-900 border-r border-slate-200">{formatNumber(t.kgs, 2)}</td>
-                          <td className="p-2 font-bold text-slate-600 border-r border-slate-200 uppercase">{t.userId}</td>
+                          <td className="p-2 font-bold text-slate-600 border-r border-slate-200 uppercase">{getUserDisplayName(t.userId)}</td>
                           <td className="p-2 text-slate-400 font-mono">{new Date(t.timestamp).toLocaleString('id-ID', { hour12: false })}</td>
                         </tr>
                       );
@@ -1192,7 +1291,7 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users, use
                         <td className="p-2 text-slate-400 font-mono border-r border-slate-200">{new Date(log.timestamp).toLocaleString('id-ID', { hour12: false })}</td>
                         <td className="p-2 font-black text-red-600 border-r border-slate-200 uppercase tracking-tighter">{log.action}</td>
                         <td className="p-2 font-bold text-slate-700 border-r border-slate-200">{log.details}</td>
-                        <td className="p-2 font-extrabold text-slate-600 uppercase">{log.userId}</td>
+                        <td className="p-2 font-extrabold text-slate-600 uppercase">{getUserDisplayName(log.userId)}</td>
                       </tr>
                     ))
                   )}

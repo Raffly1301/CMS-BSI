@@ -73,130 +73,79 @@ const App: React.FC = () => {
   const trxLoadedRef = useRef(false);
   trxLoadedRef.current = trxLoaded;
 
-  // Helper: fetch ALL rows from a Supabase table using Cursor/Keyset-based Pagination with orderCol and id
-  const fetchAllRowsCursor = useCallback(async (table: string, orderCol: string, selectCols = '*', dateStart?: string, dateEnd?: string) => {
-    const PAGE_SIZE = 1000;
-    let allData: any[] = [];
-    let keepGoing = true;
-    let lastCursorVal: any = null;
-    let lastCursorId: any = null;
-
+  // Helper: fetch data from a Supabase table without recursive loops
+  const fetchTableData = useCallback(async (table: string, orderCol: string, selectCols = '*', dateStart?: string, dateEnd?: string, maxLimit = 100) => {
     try {
-      setFetchProgressMessage(`Memulai pengambilan data ${table}...`);
-      while (keepGoing) {
-        let query = supabase
-          .from(table)
-          .select(selectCols)
-          .order(orderCol, { ascending: false })
-          .order('id', { ascending: false })
-          .limit(PAGE_SIZE);
+      let query = supabase
+        .from(table)
+        .select(selectCols)
+        .order(orderCol, { ascending: false })
+        .limit(maxLimit);
 
-        if (dateStart) {
-          query = query.gte(orderCol, dateStart);
-        }
-        if (dateEnd) {
-          query = query.lte(orderCol, dateEnd);
-        }
-
-        if (lastCursorVal !== null && lastCursorId !== null) {
-          query = query.or(`${orderCol}.lt.${lastCursorVal},and(${orderCol}.eq.${lastCursorVal},id.lt.${lastCursorId})`);
-        }
-
-        let { data, error } = await query;
-
-        if (error && selectCols !== '*') {
-          console.warn(`Fetch error on table '${table}' with columns '${selectCols}', falling back to '*':`, error);
-          let fallbackQuery = supabase
-            .from(table)
-            .select('*')
-            .order(orderCol, { ascending: false })
-            .order('id', { ascending: false })
-            .limit(PAGE_SIZE);
-          if (lastCursorVal !== null && lastCursorId !== null) {
-            fallbackQuery = fallbackQuery.or(`${orderCol}.lt.${lastCursorVal},and(${orderCol}.eq.${lastCursorVal},id.lt.${lastCursorId})`);
-          }
-          const retry1 = await fallbackQuery;
-          data = retry1.data;
-          error = retry1.error;
-        }
-
-        if (error) {
-          console.warn(`Fetch error on table '${table}' with ordering '${orderCol}', falling back to no order:`, error);
-          let fallbackQuery2 = supabase
-            .from(table)
-            .select('*')
-            .limit(PAGE_SIZE);
-          const retry2 = await fallbackQuery2;
-          data = retry2.data;
-          error = retry2.error;
-        }
-
-        if (error) {
-          if (isEgressQuotaError(error)) {
-            setIsQuotaExceeded(true);
-            console.warn(`Supabase egress quota restricted for table '${table}'. Retrieving local cache.`);
-          } else {
-            console.error(`Persistent fetch error on table '${table}':`, error);
-          }
-          const cached = getTableCache(table);
-          if (cached && cached.length > 0) return cached;
-          return [];
-        }
-
-        if (data && data.length > 0) {
-          allData = allData.concat(data);
-          const lastRow = data[data.length - 1];
-          lastCursorVal = lastRow[orderCol];
-          lastCursorId = (lastRow as any).id;
-
-          const dateStr = lastCursorVal ? new Date(lastCursorVal).toLocaleDateString('id-ID', { year: 'numeric', month: 'short', day: 'numeric' }) : '';
-          setFetchProgressMessage(`Mengambil data hingga tanggal: ${dateStr || lastCursorVal} (${allData.length} baris)`);
-
-          if (data.length < PAGE_SIZE) {
-            keepGoing = false;
-          }
-        } else {
-          keepGoing = false;
-        }
+      if (dateStart) {
+        query = query.gte(orderCol, dateStart);
+      }
+      if (dateEnd) {
+        query = query.lte(orderCol, dateEnd);
       }
 
-      setFetchProgressMessage(`Selesai mengambil ${allData.length} baris dari ${table}.`);
-      if (allData.length > 0) {
-        saveTableCache(table, allData);
+      const { data, error } = await query;
+
+      if (error) {
+        if (isEgressQuotaError(error)) {
+          setIsQuotaExceeded(true);
+        }
+        const cached = getTableCache(table);
+        return cached || [];
       }
-      return allData;
+
+      if (data && data.length > 0) {
+        saveTableCache(table, data);
+      }
+      return data || [];
     } catch (err: any) {
       if (isEgressQuotaError(err)) {
         setIsQuotaExceeded(true);
       }
-      console.warn(`Exception fetching table '${table}' with cursor, falling back to cache:`, err);
       const cached = getTableCache(table);
       return cached || [];
     }
   }, []);
 
+  const [usersList, setUsersList] = useState<User[]>([]);
+
   const fetchLookups = useCallback(async () => {
     try {
-      const [{ map: itemsMap }, { map: usersMap }] = await Promise.all([
+      const [{ map: itemsMap }, { list: usersData, map: usersMap }] = await Promise.all([
         getMasterItems(),
         getMasterUsers()
       ]);
       itemsCache.current = itemsMap;
       usersCache.current = usersMap;
+      if (usersData && usersData.length > 0) {
+        setUsersList(usersData as User[]);
+      }
     } catch (e) {
       console.warn("Non-fatal lookups fetch issue:", e);
     }
   }, []);
 
-  // Fetch only chiller stock (used by Stok Chiller, Dashboard, Laporan, Stok Harian)
+  // Fetch only chiller stock from the last 2 weeks (used by Dashboard, Laporan, Stok Harian)
   const fetchStock = useCallback(async (silent = false) => {
     if (!silent) setStockLoading(true);
     try {
       await fetchLookups();
-      const stockData = await fetchAllRowsCursor(
+      const twoWeeksAgo = new Date();
+      twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
+      twoWeeksAgo.setHours(0, 0, 0, 0);
+
+      const stockData = await fetchTableData(
         'chiller_stock',
         'created_at',
-        '*'
+        '*',
+        twoWeeksAgo.toISOString(),
+        undefined,
+        100
       );
 
       const mappedStock: ChillerItem[] = (stockData || []).map((item: any) => ({
@@ -228,19 +177,20 @@ const App: React.FC = () => {
     } finally {
       if (!silent) setStockLoading(false);
     }
-  }, [fetchAllRowsCursor, fetchLookups]);
+  }, [fetchTableData, fetchLookups]);
 
   // Fetch only transactions (used by Dashboard, Laporan & Log, Stok Harian)
   const fetchTransactions = useCallback(async (silent = false, dateStart?: string, dateEnd?: string) => {
     if (!silent) setTrxLoading(true);
     try {
       await fetchLookups();
-      const trxData = await fetchAllRowsCursor(
+      const trxData = await fetchTableData(
         'transactions',
         'transaction_time',
         'id,batch_id,note,quantity_pcs,quantity_kgs,transaction_type,destination,user_id,transaction_time',
         dateStart,
-        dateEnd
+        dateEnd,
+        100
       );
 
       const mappedTrx: Transaction[] = (trxData || []).map((item: any) => ({
@@ -270,7 +220,7 @@ const App: React.FC = () => {
 
           if (reconstructedOriginalPcs > 0 || reconstructedOriginalKgs > 0) {
             synthesizedTrxs.push({
-              id: `SYNTH-IN-${stockItem.batchId}`,
+              id: `SYNTH-IN-${stockItem.id}-${stockItem.batchId}`,
               chillerId: stockItem.batchId,
               itemCode: stockItem.itemCode,
               userId: 'SYSTEM',
@@ -285,8 +235,8 @@ const App: React.FC = () => {
 
       const finalTrx = [...mappedTrx, ...synthesizedTrxs];
       setTransactionTable(finalTrx);
-      setLogTable(finalTrx.map(t => ({
-        id: `LOG-${t.id}`,
+      setLogTable(finalTrx.map((t, idx) => ({
+        id: `LOG-${t.id}-${idx}`,
         userId: t.userId,
         action: t.type,
         details: `${t.type} untuk Batch ${t.chillerId} (${t.pcs} Pcs / ${t.kgs.toFixed(2)} Kg)`,
@@ -298,7 +248,7 @@ const App: React.FC = () => {
     } finally {
       if (!silent) setTrxLoading(false);
     }
-  }, [fetchAllRowsCursor, fetchLookups, chillerTable]);
+  }, [fetchTableData, fetchLookups, chillerTable]);
 
   const fetchData = useCallback(async (silent = false) => {
     await Promise.all([fetchStock(silent), fetchTransactions(silent)]);
@@ -327,6 +277,14 @@ const App: React.FC = () => {
       if (trxTimeoutRef.current) clearTimeout(trxTimeoutRef.current);
     };
   }, []);
+
+  // Preload master items and users into memory cache immediately on app initialization
+  useEffect(() => {
+    if (isAuthenticated) {
+      getMasterItems().catch(err => console.warn('Preload master items failed:', err));
+      getMasterUsers().catch(err => console.warn('Preload master users failed:', err));
+    }
+  }, [isAuthenticated]);
 
   // EFFICIENT ON-DEMAND LOADING:
   // Only load the exact tables required for the currently active menu!
@@ -469,30 +427,17 @@ const App: React.FC = () => {
         }
       });
 
-      // Fetch all from Supabase with pagination so we don't get capped by default 1000 limit
       try {
-        let from = 0;
-        const PAGE_SIZE = 1000;
-        let keepGoing = true;
-        while (keepGoing) {
-          const { data, error } = await supabase
-            .from('chiller_stock')
-            .select('batch_id')
-            .like('batch_id', `BSI-%${datePart}-%`)
-            .range(from, from + PAGE_SIZE - 1);
+        const { data, error } = await supabase
+          .from('chiller_stock')
+          .select('batch_id')
+          .like('batch_id', `BSI-%${datePart}-%`)
+          .limit(100);
 
-          if (error) {
-            console.error("Error fetching existing batch ids:", error);
-            keepGoing = false;
-          } else if (data && data.length > 0) {
-            data.forEach((row: any) => {
-              if (row.batch_id) set.add(row.batch_id);
-            });
-            from += PAGE_SIZE;
-            if (data.length < PAGE_SIZE) keepGoing = false;
-          } else {
-            keepGoing = false;
-          }
+        if (!error && data) {
+          data.forEach((row: any) => {
+            if (row.batch_id) set.add(row.batch_id);
+          });
         }
       } catch (e) {
         console.error("Error fetching existing batch ids:", e);
@@ -1162,7 +1107,7 @@ const App: React.FC = () => {
               )
             )}
             {activeView === 'INVENTORY' && <InventoryList user={user} items={currentInventory} onOut={handleOutflow} onBatchOut={handleBatchOut} onQCApprove={(id) => handleQCAction(id, 'APPROVE')} onQCReject={(id) => handleQCAction(id, 'REJECT')} onRefresh={() => fetchStock(true)} />}
-            {activeView === 'REPORTS' && <Reports items={chillerTable} transactions={transactionTable} logs={logTable} users={[user!]} user={user} />}
+            {activeView === 'REPORTS' && <Reports items={chillerTable} transactions={transactionTable} logs={logTable} users={usersList.length > 0 ? usersList : (user ? [user] : [])} user={user} />}
             {activeView === 'DAILY_REPORT' && <DailyStockReport items={chillerTable} transactions={transactionTable} user={user} onRefresh={() => fetchData(true)} />}
             {activeView === 'ITEM_DATABASE' && <ItemDatabase user={user} />}
             {activeView === 'VIRTUAL_INVENTORY' && <VirtualInventoryList />}

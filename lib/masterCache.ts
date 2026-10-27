@@ -27,7 +27,7 @@ export async function getMasterItems(forceRefresh = false): Promise<{ list: Item
     try {
       const { data, error } = await supabase
         .from('items')
-        .select('id, code, description, name, category, is_active')
+        .select('id, code, description, category, is_active')
         .order('code', { ascending: true });
 
       let rawList = data;
@@ -43,7 +43,7 @@ export async function getMasterItems(forceRefresh = false): Promise<{ list: Item
       const map: Record<string, { name: string; code: string }> = {};
       const list: ItemMaster[] = (rawList || []).map((it: any) => {
         const idStr = String(it.id);
-        const nameStr = it.description || it.name || '';
+        const nameStr = it.description || '';
         const codeStr = it.code || '';
         map[idStr] = { name: nameStr, code: codeStr };
         return {
@@ -64,7 +64,7 @@ export async function getMasterItems(forceRefresh = false): Promise<{ list: Item
       const map: Record<string, { name: string; code: string }> = {};
       const list: ItemMaster[] = rawList.map((it: any) => {
         const idStr = String(it.id);
-        const nameStr = it.description || it.name || '';
+        const nameStr = it.description || '';
         const codeStr = it.code || '';
         map[idStr] = { name: nameStr, code: codeStr };
         return {
@@ -103,7 +103,7 @@ export async function getMasterUsers(forceRefresh = false): Promise<{ list: any[
     try {
       const { data, error } = await supabase
         .from('users')
-        .select('id, username, role, full_name');
+        .select('id, username, role');
 
       let rawUsers = data;
       if (error || !rawUsers) {
@@ -118,12 +118,16 @@ export async function getMasterUsers(forceRefresh = false): Promise<{ list: any[
       const map: Record<string, string> = {};
       const list = (rawUsers || []).map((u: any) => {
         const idStr = String(u.id);
-        map[idStr] = u.username;
+        const displayName = u.full_name || u.fullName || u.username || idStr;
+        map[idStr] = displayName;
+        if (u.username) {
+          map[u.username] = displayName;
+        }
         return {
           id: idStr,
           username: u.username,
           role: u.role,
-          fullName: u.full_name || u.username
+          fullName: displayName
         };
       });
 
@@ -136,12 +140,16 @@ export async function getMasterUsers(forceRefresh = false): Promise<{ list: any[
       const map: Record<string, string> = {};
       const list = rawUsers.map((u: any) => {
         const idStr = String(u.id);
-        map[idStr] = u.username;
+        const displayName = u.full_name || u.fullName || u.username || idStr;
+        map[idStr] = displayName;
+        if (u.username) {
+          map[u.username] = displayName;
+        }
         return {
           id: idStr,
           username: u.username,
           role: u.role,
-          fullName: u.full_name || u.username
+          fullName: displayName
         };
       });
       cachedUsersList = list;
