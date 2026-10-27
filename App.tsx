@@ -28,6 +28,7 @@ import LoginForm from './components/LoginForm';
 import { supabase } from './lib/supabase';
 import { safeInsertChillerStock } from './lib/chillerStockHelper';
 import { isEgressQuotaError, saveTableCache, getTableCache } from './lib/cacheHelper';
+import { getMasterItems, getMasterUsers } from './lib/masterCache';
 
 const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
@@ -175,55 +176,15 @@ const App: React.FC = () => {
   }, []);
 
   const fetchLookups = useCallback(async () => {
-    if (Object.keys(itemsCache.current).length > 0 && Object.keys(usersCache.current).length > 0) {
-      return;
-    }
     try {
-      const [itemsRes, usersRes] = await Promise.all([
-        supabase.from('items').select('id, code, description'),
-        supabase.from('users').select('id, username')
+      const [{ map: itemsMap }, { map: usersMap }] = await Promise.all([
+        getMasterItems(),
+        getMasterUsers()
       ]);
-
-      if (itemsRes.error && isEgressQuotaError(itemsRes.error)) setIsQuotaExceeded(true);
-      if (usersRes.error && isEgressQuotaError(usersRes.error)) setIsQuotaExceeded(true);
-
-      let itemsData = itemsRes.data;
-      if (!itemsData) {
-        itemsData = getTableCache('items');
-      } else {
-        saveTableCache('items', itemsData);
-      }
-      if (itemsData) {
-        itemsData.forEach((item: any) => {
-          itemsCache.current[item.id] = { name: item.description || item.name || '', code: item.code || '' };
-        });
-      }
-
-      let usersData = usersRes.data;
-      if (!usersData) {
-        usersData = getTableCache('users');
-      } else {
-        saveTableCache('users', usersData);
-      }
-      if (usersData) {
-        usersData.forEach((u: any) => {
-          usersCache.current[u.id] = u.username;
-        });
-      }
+      itemsCache.current = itemsMap;
+      usersCache.current = usersMap;
     } catch (e) {
-      console.warn("Non-fatal lookups fetch issue, trying cache:", e);
-      const cachedItems = getTableCache('items');
-      if (cachedItems) {
-        cachedItems.forEach((item: any) => {
-          itemsCache.current[item.id] = { name: item.description || item.name || '', code: item.code || '' };
-        });
-      }
-      const cachedUsers = getTableCache('users');
-      if (cachedUsers) {
-        cachedUsers.forEach((u: any) => {
-          usersCache.current[u.id] = u.username;
-        });
-      }
+      console.warn("Non-fatal lookups fetch issue:", e);
     }
   }, []);
 
