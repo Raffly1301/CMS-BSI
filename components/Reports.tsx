@@ -81,7 +81,7 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users, use
         setIsLoadingServerTrx(true);
         let query = supabase
           .from('transactions')
-          .select('id,batch_id,note,quantity_pcs,quantity_kgs,transaction_type,destination,user_id,transaction_time')
+          .select('id,batch_id,note,quantity_pcs,quantity_kgs,transaction_type,destination,user_id,transaction_time,users:user_id(username)')
           .order('transaction_time', { ascending: false });
 
         if (filterStartDate) {
@@ -99,18 +99,22 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users, use
 
         const { data, error } = await query;
         if (!error && data && isMounted) {
-          const mapped: Transaction[] = data.map((item: any) => ({
-            id: String(item.id),
-            chillerId: String(item.batch_id || 'N/A'),
-            itemCode: item.note || undefined,
-            userId: item.user_id,
-            type: (item.transaction_type || '').toUpperCase() as any,
-            destination: item.destination,
-            pcs: Number(item.quantity_pcs || 0),
-            kgs: Number(item.quantity_kgs || 0),
-            timestamp: item.transaction_time ? new Date(item.transaction_time).getTime() : Date.now(),
-            note: item.note
-          }));
+          const mapped: Transaction[] = data.map((item: any) => {
+            const rawUser = item.users;
+            const relUsername = Array.isArray(rawUser) ? rawUser[0]?.username : rawUser?.username;
+            return {
+              id: String(item.id),
+              chillerId: String(item.batch_id || 'N/A'),
+              itemCode: item.note || undefined,
+              userId: relUsername || usersMap[item.user_id] || usersById[item.user_id] || item.user_id,
+              type: (item.transaction_type || '').toUpperCase() as any,
+              destination: item.destination,
+              pcs: Number(item.quantity_pcs || 0),
+              kgs: Number(item.quantity_kgs || 0),
+              timestamp: item.transaction_time ? new Date(item.transaction_time).getTime() : Date.now(),
+              note: item.note
+            };
+          });
           setServerTransactions(mapped);
         }
       } catch (err) {
@@ -124,7 +128,7 @@ const Reports: React.FC<ReportsProps> = ({ items, transactions, logs, users, use
     return () => {
       isMounted = false;
     };
-  }, [filterStartDate, filterEndDate, filterType, filterDestination, tab]);
+  }, [filterStartDate, filterEndDate, filterType, filterDestination, tab, usersMap, usersById]);
 
   const activeTransactions = useMemo(() => {
     return serverTransactions !== null ? serverTransactions : transactions;

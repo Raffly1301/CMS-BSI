@@ -198,63 +198,113 @@ export const saveAndApplyStockOpname = async ({
     // 3. Synchronize Chiller Stock if requested
     if (syncChillerStock) {
         try {
-            // Mark current active stock ('IN') as cleared/reconciled by opname
+            // Mark current active stock as cleared/reconciled by opname
             const { error: archiveError } = await supabase
                 .from('chiller_stock')
                 .update({
                     status: 'OUT'
                 })
-                .eq('status', 'IN');
+                .in('status', ['IN', 'IN_CHILLER', 'PENDING', 'QC_PENDING', 'APPROVED']);
 
             if (archiveError) {
                 console.warn('Could not archive previous active chiller_stock:', archiveError);
             }
 
+            // Filter items that have actual physical quantity (pcs > 0 or kgs > 0)
+            const validItems = items.filter(it => (Number(it.pcs) > 0 || Number(it.kgs) > 0));
+
             // Generate unique batch IDs and insert new recount items
             const dateClean = opnameDate.replace(/-/g, '');
-            const timestamp = new Date(`${opnameDate}T00:00:01`).toISOString();
+            const timestamp = new Date(`${opnameDate}T12:00:00Z`).toISOString();
 
-            const newStockBatches = items.map((item, idx) => {
+            const newStockBatches = validItems.map((item, idx) => {
                 const randId = Math.floor(1000 + Math.random() * 9000);
                 const batchId = `OPN-${dateClean}-${idx + 1}-${randId}`;
                 return {
                     batch_id: batchId,
-                    items_id: item.itemsId,
+                    items_id: item.itemsId && item.itemsId.trim() !== '' ? item.itemsId : null,
                     quantity_pcs: Number(item.pcs) || 0,
                     quantity_kgs: Number(item.kgs) || 0,
                     production_date: item.productionDate || opnameDate,
                     slaughtering_date: item.slaughteringDate || opnameDate,
                     status: 'IN',
-                    created_by: user.id,
+                    created_by: user.id || 'system',
                     source: item.source || 'PDS',
                     allocation: item.allocation || 'PDS',
-                    isWIP: Boolean(item.isWIP)
+                    isWIP: Boolean(item.isWIP),
+                    created_at: timestamp
                 };
             });
 
-            // Insert resiliently (handles status_WIP / status_wip / column omit automatically)
-            await safeInsertChillerStock(newStockBatches);
+            if (newStockBatches.length > 0) {
+                // Insert resiliently (handles status_WIP / status_wip / column omit automatically)
+                await safeInsertChillerStock(newStockBatches);
 
-            // Insert transaction audit
-            const CHUNK_SIZE = 50;
-            for (let i = 0; i < newStockBatches.length; i += CHUNK_SIZE) {
-                const chunk = newStockBatches.slice(i, i + CHUNK_SIZE);
-                const trxChunk = chunk.map((c, idx) => {
-                    const origItem = items[i + idx];
-                    return {
-                        batch_id: c.batch_id,
-                        note: `${origItem?.itemCode || 'ITEM'} [STOCK OPNAME]`,
-                        destination: 'Chiller',
-                        quantity_pcs: c.quantity_pcs,
-                        quantity_kgs: c.quantity_kgs,
-                        transaction_type: 'in',
-                        user_id: user.id,
-                        transaction_time: timestamp
-                    };
-                });
+                // Insert transaction audit
+                const CHUNK_SIZE = 50;
+                for (let i = 0; i < newStockBatches.length; i += CHUNK_SIZE) {
+                    const chunk = newStockBatches.slice(i, i + CHUNK_SIZE);
+                    const trxChunk = chunk.map((c, idx) => {
+                        const origItem = validItems[i + idx];
+                        const noteText = origItem?.itemCode ? `${origItem.itemCode} [STOCK OPNAME]` : '[STOCK OPNAME]';
+                        return {
+                            batch_id: c.batch_id,
+                            note: noteText,
+                            destination: 'Chiller',
+                            quantity_pcs: c.quantity_pcs,
+                            quantity_kgs: c.quantity_kgs,
+                            transaction_type: 'in',
+                            user_id: user.id || 'system',
+                            transaction_time: timestamp
+                        };
+                    });
 
-                await supabase.from('transactions').insert(trxChunk);
+                    await supabase.from('transactions').insert(trxChunk);
+                }
             }
+
+            // Update local table cache for offline / egress quota resilience
+            const currentCachedStock = getTableCache('chiller_stock') || [];
+            const updatedCachedStock = currentCachedStock.map((row: any) => {
+                if (['IN', 'IN_CHILLER', 'PENDING', 'QC_PENDING', 'APPROVED'].includes(row.status)) {
+                    return { ...row, status: 'OUT' };
+                }
+                return row;
+            });
+            const formattedNewBatchesForCache = newStockBatches.map(b => ({
+                id: `local-${b.batch_id}`,
+                batch_id: b.batch_id,
+                items_id: b.items_id,
+                quantity_pcs: b.quantity_pcs,
+                quantity_kgs: b.quantity_kgs,
+                production_date: b.production_date,
+                slaughtering_date: b.slaughtering_date,
+                status: 'IN',
+                created_by: b.created_by,
+                source: b.source,
+                allocation: b.allocation,
+                status_WIP: b.isWIP,
+                status_wip: b.isWIP,
+                created_at: timestamp
+            }));
+            saveTableCache('chiller_stock', [...formattedNewBatchesForCache, ...updatedCachedStock]);
+
+            const currentCachedTrx = getTableCache('transactions') || [];
+            const formattedNewTrxForCache = newStockBatches.map((c, idx) => {
+                const origItem = validItems[idx];
+                return {
+                    id: `trx-${c.batch_id}`,
+                    batch_id: c.batch_id,
+                    note: origItem?.itemCode ? `${origItem.itemCode} [STOCK OPNAME]` : '[STOCK OPNAME]',
+                    destination: 'Chiller',
+                    quantity_pcs: c.quantity_pcs,
+                    quantity_kgs: c.quantity_kgs,
+                    transaction_type: 'in',
+                    user_id: user.id || 'system',
+                    transaction_time: timestamp
+                };
+            });
+            saveTableCache('transactions', [...formattedNewTrxForCache, ...currentCachedTrx]);
         } catch (syncErr: any) {
             console.error('Failed to sync chiller stock with opname:', syncErr);
             throw new Error(`Stock Opname disimpan, namun gagal menyelaraskan Stok Chiller: ${syncErr.message || syncErr}`);
