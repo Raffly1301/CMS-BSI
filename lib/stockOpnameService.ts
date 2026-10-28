@@ -1,7 +1,7 @@
 import { supabase } from './supabase';
 import { safeInsertChillerStock, safeInsertStockOpname } from './chillerStockHelper';
 import { StockOpnameItem, StockOpnameRecord, User, InflowSource } from '../types';
-import { isEgressQuotaError, getTableCache } from './cacheHelper';
+import { isEgressQuotaError, getTableCache, saveTableCache } from './cacheHelper';
 
 const STORAGE_KEY = 'bsi_stock_opname_history';
 

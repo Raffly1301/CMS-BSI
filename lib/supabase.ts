@@ -1,8 +1,8 @@
 
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = 'https://gyjzhngedpwgzrzuimzv.supabase.co';
-const supabaseAnonKey = 'sb_publishable_FrhqAj1JEzE3rC05A_SH0Q_wdmFjijZ';
+const supabaseUrl = 'https://bkbeijzetyvdqvscnbwy.supabase.co';
+const supabaseAnonKey = 'sb_publishable_ynrmxgHEBcKK2Qvbhv3jiw_vWpVMDfp';
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 //developer bounty
