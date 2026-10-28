@@ -104,27 +104,29 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
   // Master items list
   const [itemsList, setItemsList] = useState<ItemMaster[]>([]);
 
-  // Range transactions fetched directly from Supabase Postgres according to date filter
+  // Range transactions and chiller stock fetched directly from Supabase Postgres according to date filter
   const [rangeTransactions, setRangeTransactions] = useState<Transaction[]>([]);
+  const [rangeItems, setRangeItems] = useState<ChillerItem[]>([]);
   const [hasFetchedRange, setHasFetchedRange] = useState<boolean>(false);
   const [isFetchingRange, setIsFetchingRange] = useState<boolean>(false);
 
   useEffect(() => {
     let isMounted = true;
-    const loadTransactionsForRange = async () => {
+    const loadDataForRange = async () => {
       try {
         setIsFetchingRange(true);
         const endIso = new Date(`${endDate}T23:59:59.999`).toISOString();
 
-        let query = supabase
+        // 1. Fetch transactions up to endIso without limit 30
+        const { data: trxData, error: trxErr } = await supabase
           .from('transactions')
           .select('id,batch_id,note,quantity_pcs,quantity_kgs,transaction_type,destination,user_id,transaction_time')
           .lte('transaction_time', endIso)
-          .order('transaction_time', { ascending: false });
+          .order('transaction_time', { ascending: false })
+          .limit(5000);
 
-        const { data, error } = await query;
-        if (!error && data && isMounted) {
-          const mapped: Transaction[] = data.map((item: any) => ({
+        if (!trxErr && trxData && isMounted) {
+          const mappedTrx: Transaction[] = trxData.map((item: any) => ({
             id: String(item.id),
             chillerId: String(item.batch_id || 'N/A'),
             itemCode: item.note || undefined,
@@ -136,25 +138,64 @@ const DailyStockReport: React.FC<DailyStockReportProps> = ({ items, transactions
             timestamp: item.transaction_time ? new Date(item.transaction_time).getTime() : Date.now(),
             note: item.note
           }));
-          setRangeTransactions(mapped);
+          setRangeTransactions(mappedTrx);
           setHasFetchedRange(true);
         }
+
+        // 2. Fetch chiller stock up to endIso without limit
+        const { data: stockData, error: stockErr } = await supabase
+          .from('chiller_stock')
+          .select('*')
+          .lte('created_at', endIso)
+          .order('created_at', { ascending: false })
+          .limit(5000);
+
+        if (!stockErr && stockData && isMounted) {
+          const mappedStock: ChillerItem[] = stockData.map((item: any) => {
+            const matchedMaster = itemsList.find(m => m.id === item.items_id);
+            return {
+              id: item.id ? String(item.id) : String(item.batch_id),
+              batchId: item.batch_id,
+              itemsId: item.items_id,
+              itemCode: matchedMaster?.code || 'N/A',
+              itemName: matchedMaster?.description || item.items_id,
+              pcs: Number(item.quantity_pcs || 0),
+              kgs: Number(item.quantity_kgs || 0),
+              productionDate: item.production_date,
+              slaughteringDate: item.slaughtering_date,
+              source: item.source || 'FPS',
+              allocation: item.allocation || 'FPS',
+              entryTimestamp: item.created_at ? new Date(item.created_at).getTime() : Date.now(),
+              status: (
+                item.status === 'OUT' || item.status === 'OUT_CHILLER' ? 'OUT_CHILLER' :
+                  item.status === 'PENDING' || item.status === 'QC_PENDING' ? 'PENDING_QC' :
+                    'IN_CHILLER'
+              ),
+              isWIP: item.status_WIP === true || item.status_WIP === 'true' || item.status_wip === true || item.status_wip === 'true'
+            };
+          });
+          setRangeItems(mappedStock);
+        }
       } catch (e) {
-        console.warn('Failed to fetch range transactions for DailyStockReport:', e);
+        console.warn('Failed to fetch range data for DailyStockReport:', e);
       } finally {
         if (isMounted) setIsFetchingRange(false);
       }
     };
 
-    loadTransactionsForRange();
+    loadDataForRange();
     return () => {
       isMounted = false;
     };
-  }, [startDate, endDate]);
+  }, [startDate, endDate, itemsList]);
 
   const activeTransactions = useMemo(() => {
     return hasFetchedRange ? rangeTransactions : transactions;
   }, [hasFetchedRange, rangeTransactions, transactions]);
+
+  const activeItems = useMemo(() => {
+    return rangeItems.length > 0 ? rangeItems : items;
+  }, [rangeItems, items]);
 
   const loadOpnames = async () => {
     try {

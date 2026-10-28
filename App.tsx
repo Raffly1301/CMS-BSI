@@ -588,9 +588,36 @@ const App: React.FC = () => {
   const handleOutflow = async (id: string, destination: OutflowDestination, outPcs?: number, outKgs?: number, skipLoading = false) => {
     if (!user) return;
     if (!skipLoading) setIsActionLoading(true);
-    const item = chillerTable.find(i => i.id === id);
+    
+    let item: any = chillerTable.find(i => i.id === id || i.batchId === id);
+    if (!item) {
+      const { data } = await supabase
+        .from('chiller_stock')
+        .select('*')
+        .or(`id.eq.${id},batch_id.eq.${id}`)
+        .limit(1);
+      if (data && data.length > 0) {
+        item = {
+          id: String(data[0].id),
+          batchId: data[0].batch_id,
+          itemsId: data[0].items_id,
+          itemCode: itemsCache.current[data[0].items_id]?.code || 'N/A',
+          itemName: itemsCache.current[data[0].items_id]?.name || data[0].items_id,
+          pcs: Number(data[0].quantity_pcs || 0),
+          kgs: Number(data[0].quantity_kgs || 0),
+          productionDate: data[0].production_date,
+          slaughteringDate: data[0].slaughtering_date,
+          source: data[0].source || 'FPS',
+          allocation: data[0].allocation || 'FPS',
+          entryTimestamp: data[0].created_at ? new Date(data[0].created_at).getTime() : Date.now(),
+          status: data[0].status
+        };
+      }
+    }
+
     if (!item) {
       if (!skipLoading) setIsActionLoading(false);
+      alert('Item chiller tidak ditemukan.');
       return;
     }
 
@@ -600,74 +627,59 @@ const App: React.FC = () => {
     const isCondem = destination === 'Condem' && (userRole === 'USER' || userRole === 'ADMIN');
 
     try {
-      // 1. Call single Supabase RPC: process_stock_transfer
-      const { error: rpcErr } = await supabase.rpc('process_stock_transfer', {
-        p_batch_id: item.batchId,
-        p_items_id: item.itemsId,
-        p_destination: destination,
-        p_pcs: actualPcs,
-        p_kgs: actualKgs,
-        p_user_id: user.id,
-        p_is_condem: isCondem,
-        p_item_code: item.itemCode
-      });
+      if (isCondem) {
+        const { error: stockErr } = await supabase.from('chiller_stock')
+          .update({ status: 'PENDING' })
+          .eq('batch_id', item.batchId);
 
-      if (rpcErr) {
-        console.warn("RPC process_stock_transfer error, falling back to direct operations:", rpcErr);
-        if (isCondem) {
-          const { error: stockErr } = await supabase.from('chiller_stock')
-            .update({ status: 'PENDING' })
-            .eq(item.id.includes('-') ? 'id' : 'batch_id', item.id);
+        if (stockErr) throw stockErr;
 
-          if (stockErr) throw stockErr;
-
-          const { error: trxErr } = await supabase.from('transactions').insert({
-            batch_id: item.batchId,
-            note: item.itemCode,
-            destination: 'Condem',
-            quantity_pcs: actualPcs,
-            quantity_kgs: actualKgs,
-            transaction_type: 'qc_pending',
-            user_id: user.id,
-            transaction_time: new Date().toISOString()
-          });
-          if (trxErr) throw trxErr;
+        const { error: trxErr } = await supabase.from('transactions').insert({
+          batch_id: item.batchId,
+          note: item.itemCode,
+          destination: 'Condem',
+          quantity_pcs: actualPcs,
+          quantity_kgs: actualKgs,
+          transaction_type: 'qc_pending',
+          user_id: user.id,
+          transaction_time: new Date().toISOString()
+        });
+        if (trxErr) throw trxErr;
+      } else {
+        if (actualPcs >= item.pcs) {
+          const { error: upErr } = await supabase.from('chiller_stock')
+            .update({
+              status: 'OUT',
+              quantity_pcs: 0,
+              quantity_kgs: 0
+            })
+            .eq('batch_id', item.batchId);
+          if (upErr) throw upErr;
         } else {
-          if (actualPcs >= item.pcs) {
-            const { error: upErr } = await supabase.from('chiller_stock')
-              .update({
-                status: 'OUT',
-                quantity_pcs: 0,
-                quantity_kgs: 0
-              })
-              .eq(item.id.includes('-') ? 'id' : 'batch_id', item.id);
-            if (upErr) throw upErr;
-          } else {
-            const { error: upErr } = await supabase.from('chiller_stock')
-              .update({
-                quantity_pcs: item.pcs - actualPcs,
-                quantity_kgs: item.kgs - actualKgs
-              })
-              .eq(item.id.includes('-') ? 'id' : 'batch_id', item.id);
-            if (upErr) throw upErr;
-          }
+          const { error: upErr } = await supabase.from('chiller_stock')
+            .update({
+              quantity_pcs: item.pcs - actualPcs,
+              quantity_kgs: item.kgs - actualKgs
+            })
+            .eq('batch_id', item.batchId);
+          if (upErr) throw upErr;
+        }
 
-          const { error: trxErr } = await supabase.from('transactions').insert({
-            batch_id: item.batchId,
-            note: item.itemCode,
-            destination: destination,
-            quantity_pcs: actualPcs,
-            quantity_kgs: actualKgs,
-            transaction_type: 'out',
-            user_id: user.id,
-            transaction_time: new Date().toISOString()
-          });
+        const { error: trxErr } = await supabase.from('transactions').insert({
+          batch_id: item.batchId,
+          note: item.itemCode,
+          destination: destination,
+          quantity_pcs: actualPcs,
+          quantity_kgs: actualKgs,
+          transaction_type: 'out',
+          user_id: user.id,
+          transaction_time: new Date().toISOString()
+        });
 
-          if (trxErr) throw trxErr;
+        if (trxErr) throw trxErr;
 
-          if (destination !== 'Delive' && destination !== 'Condem') {
-            await updateVirtualStock(destination, item.itemsId, actualPcs, actualKgs, 'ADD');
-          }
+        if (destination !== 'Delive' && destination !== 'Condem') {
+          await updateVirtualStock(destination, item.itemsId, actualPcs, actualKgs, 'ADD');
         }
       }
 
@@ -691,68 +703,73 @@ const App: React.FC = () => {
 
     for (const id of ids) {
       try {
-        const item = chillerTable.find(i => i.id === id);
+        let item: any = chillerTable.find(i => i.id === id || i.batchId === id);
+        if (!item) {
+          const { data } = await supabase
+            .from('chiller_stock')
+            .select('*')
+            .or(`id.eq.${id},batch_id.eq.${id}`)
+            .limit(1);
+          if (data && data.length > 0) {
+            item = {
+              id: String(data[0].id),
+              batchId: data[0].batch_id,
+              itemsId: data[0].items_id,
+              itemCode: itemsCache.current[data[0].items_id]?.code || 'N/A',
+              pcs: Number(data[0].quantity_pcs || 0),
+              kgs: Number(data[0].quantity_kgs || 0),
+              source: data[0].source || 'FPS',
+              allocation: data[0].allocation || 'FPS'
+            };
+          }
+        }
         if (!item) continue;
 
         const actualPcs = item.pcs;
         const actualKgs = item.kgs;
         const isCondem = destination === 'Condem' && (userRole === 'USER' || userRole === 'ADMIN');
 
-        const { error: rpcErr } = await supabase.rpc('process_stock_transfer', {
-          p_batch_id: item.batchId,
-          p_items_id: item.itemsId,
-          p_destination: destination,
-          p_pcs: actualPcs,
-          p_kgs: actualKgs,
-          p_user_id: user.id,
-          p_is_condem: isCondem,
-          p_item_code: item.itemCode
-        });
+        if (isCondem) {
+          const { error: stockErr } = await supabase.from('chiller_stock')
+            .update({ status: 'PENDING' })
+            .eq('batch_id', item.batchId);
+          if (stockErr) throw stockErr;
 
-        if (rpcErr) {
-          console.warn("RPC process_stock_transfer error in batch, falling back:", rpcErr);
-          if (isCondem) {
-            const { error: stockErr } = await supabase.from('chiller_stock')
-              .update({ status: 'PENDING' })
-              .eq(id.includes('-') ? 'id' : 'batch_id', id);
-            if (stockErr) throw stockErr;
+          const { error: trxErr } = await supabase.from('transactions').insert({
+            batch_id: item.batchId,
+            note: item.itemCode || 'N/A',
+            destination: 'Condem',
+            quantity_pcs: actualPcs,
+            quantity_kgs: actualKgs,
+            transaction_type: 'qc_pending',
+            user_id: user.id,
+            transaction_time: new Date().toISOString()
+          });
+          if (trxErr) throw trxErr;
+        } else {
+          const { error: upErr } = await supabase.from('chiller_stock')
+            .update({
+              status: 'OUT',
+              quantity_pcs: 0,
+              quantity_kgs: 0
+            })
+            .eq('batch_id', item.batchId);
+          if (upErr) throw upErr;
 
-            const { error: trxErr } = await supabase.from('transactions').insert({
-              batch_id: item.batchId,
-              note: item.itemCode,
-              destination: 'Condem',
-              quantity_pcs: actualPcs,
-              quantity_kgs: actualKgs,
-              transaction_type: 'qc_pending',
-              user_id: user.id,
-              transaction_time: new Date().toISOString()
-            });
-            if (trxErr) throw trxErr;
-          } else {
-            const { error: upErr } = await supabase.from('chiller_stock')
-              .update({
-                status: 'OUT',
-                quantity_pcs: 0,
-                quantity_kgs: 0
-              })
-              .eq(id.includes('-') ? 'id' : 'batch_id', id);
-            if (upErr) throw upErr;
+          const { error: trxErr } = await supabase.from('transactions').insert({
+            batch_id: item.batchId,
+            note: item.itemCode || 'N/A',
+            destination: destination,
+            quantity_pcs: actualPcs,
+            quantity_kgs: actualKgs,
+            transaction_type: 'out',
+            user_id: user.id,
+            transaction_time: new Date().toISOString()
+          });
+          if (trxErr) throw trxErr;
 
-            const { error: trxErr } = await supabase.from('transactions').insert({
-              batch_id: item.batchId,
-              note: item.itemCode,
-              destination: destination,
-              quantity_pcs: actualPcs,
-              quantity_kgs: actualKgs,
-              transaction_type: 'out',
-              user_id: user.id,
-              transaction_time: new Date().toISOString()
-            });
-            if (trxErr) throw trxErr;
-
-            if (destination !== 'Delive' && destination !== 'Condem') {
-              await updateVirtualStock(destination, item.itemsId, actualPcs, actualKgs, 'ADD');
-            }
+          if (destination !== 'Delive' && destination !== 'Condem') {
+            await updateVirtualStock(destination, item.itemsId, actualPcs, actualKgs, 'ADD');
           }
         }
         successCount++;
