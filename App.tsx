@@ -627,6 +627,24 @@ const App: React.FC = () => {
     const isCondem = destination === 'Condem' && (userRole === 'USER' || userRole === 'ADMIN');
 
     try {
+      if (!isCondem && actualPcs >= item.pcs) {
+        const { data: rpcData, error: rpcError } = await supabase.rpc('process_batch_outflow', {
+          p_batch_ids: [item.batchId],
+          p_destination: destination,
+          p_user_id: user.id
+        });
+
+        if (!rpcError && rpcData && rpcData.success) {
+          if (destination !== 'Delive' && destination !== 'Condem') {
+            await updateVirtualStock(destination, item.itemsId, actualPcs, actualKgs, 'ADD');
+          }
+          await fetchStock(true);
+          if (trxLoadedRef.current) await fetchTransactions(true);
+          if (!skipLoading) setIsActionLoading(false);
+          return;
+        }
+      }
+
       if (isCondem) {
         const { error: stockErr } = await supabase.from('chiller_stock')
           .update({ status: 'PENDING' })
@@ -696,10 +714,66 @@ const App: React.FC = () => {
   const handleBatchOut = async (ids: string[], destination: OutflowDestination) => {
     if (!user) return;
     setIsActionLoading(true);
+    const userRole = user.role.toUpperCase();
+    const isCondem = destination === 'Condem' && (userRole === 'USER' || userRole === 'ADMIN');
+
+    if (!isCondem) {
+      try {
+        const batchIdsList: string[] = [];
+        const itemsToUpdate: any[] = [];
+
+        for (const id of ids) {
+          let item: any = chillerTable.find(i => i.id === id || i.batchId === id);
+          if (!item) {
+            const { data } = await supabase
+              .from('chiller_stock')
+              .select('*')
+              .or(`id.eq.${id},batch_id.eq.${id}`)
+              .limit(1);
+            if (data && data.length > 0) {
+              item = {
+                id: String(data[0].id),
+                batchId: data[0].batch_id,
+                itemsId: data[0].items_id,
+                pcs: Number(data[0].quantity_pcs || 0),
+                kgs: Number(data[0].quantity_kgs || 0),
+                source: data[0].source || 'FPS'
+              };
+            }
+          }
+          if (item) {
+            batchIdsList.push(item.batchId);
+            itemsToUpdate.push(item);
+          }
+        }
+
+        if (batchIdsList.length > 0) {
+          const { data: rpcData, error: rpcError } = await supabase.rpc('process_batch_outflow', {
+            p_batch_ids: batchIdsList,
+            p_destination: destination,
+            p_user_id: user.id
+          });
+
+          if (!rpcError && rpcData && rpcData.success) {
+            if (destination !== 'Delive' && destination !== 'Condem') {
+              for (const it of itemsToUpdate) {
+                await updateVirtualStock(destination, it.itemsId, it.pcs, it.kgs, 'ADD');
+              }
+            }
+            await fetchStock(true);
+            if (trxLoadedRef.current) await fetchTransactions(true);
+            setIsActionLoading(false);
+            return;
+          }
+        }
+      } catch (e) {
+        console.warn("RPC batch outflow transaction error, falling back:", e);
+      }
+    }
+
     let successCount = 0;
     let failCount = 0;
     let lastErrorMsg = "";
-    const userRole = user.role.toUpperCase();
 
     for (const id of ids) {
       try {
@@ -727,7 +801,6 @@ const App: React.FC = () => {
 
         const actualPcs = item.pcs;
         const actualKgs = item.kgs;
-        const isCondem = destination === 'Condem' && (userRole === 'USER' || userRole === 'ADMIN');
 
         if (isCondem) {
           const { error: stockErr } = await supabase.from('chiller_stock')

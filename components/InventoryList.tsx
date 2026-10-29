@@ -119,11 +119,11 @@ const InventoryList: React.FC<InventoryListProps> = ({
     return () => { isMounted = false; };
   }, []);
 
-  // Debounce search term by 300ms to reduce unnecessary server queries
+  // Debounce search term by 400ms to reduce unnecessary server queries
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearchTerm(searchTerm);
-    }, 300);
+    }, 400);
     return () => clearTimeout(timer);
   }, [searchTerm]);
 
@@ -192,54 +192,47 @@ const InventoryList: React.FC<InventoryListProps> = ({
    */
   const fetchSummaryMetrics = useCallback(async (searchStr: string) => {
     try {
-      // 1. Try super-fast RPC call first if default filter
+      let totalPcs = 0;
+      let totalKgs = 0;
+      const pdSet = new Set<string>();
+
+      // 1. Try super-fast RPC call first if default filter for totals
       const isDefaultFilter = !searchStr.trim() && filterSource === 'ALL' && filterAllocation === 'ALL' && filterWIP === 'ALL' && !filterProdDate && !filterSlaughterDate;
       if (isDefaultFilter) {
         const { data: rpcData, error: rpcError } = await supabase.rpc('get_chiller_stock_summary');
         if (!rpcError && rpcData && Array.isArray(rpcData)) {
-          let totalPcs = 0;
-          let totalKgs = 0;
           rpcData.forEach((row: any) => {
             totalPcs += Number(row.total_pcs || row.quantity_pcs || row.pcs || 0);
             totalKgs += Number(row.total_kgs || row.quantity_kgs || row.kgs || 0);
           });
-          setSummaryTotals(prev => ({
-            ...prev,
-            pcs: totalPcs,
-            kgs: totalKgs
-          }));
-          return;
         }
       }
 
-      // 2. Fallback / Filtered summary query
+      // 2. Query chiller_stock for quantities and unique production dates
       let q = supabase.from('chiller_stock').select('quantity_pcs, quantity_kgs, production_date');
       q = applyServerFilters(q, searchStr);
 
       const { data, error } = await q;
 
-      if (error && isEgressQuotaError(error)) {
-        console.warn('Egress quota error fetching summary metrics');
-        return;
-      }
-
-      if (data) {
-        let totalPcs = 0;
-        let totalKgs = 0;
-        const pdSet = new Set<string>();
-
+      if (!error && data) {
+        if (!isDefaultFilter || totalPcs === 0) {
+          totalPcs = 0;
+          totalKgs = 0;
+        }
         data.forEach((row: any) => {
-          totalPcs += Number(row.quantity_pcs || 0);
-          totalKgs += Number(row.quantity_kgs || 0);
+          if (!isDefaultFilter) {
+            totalPcs += Number(row.quantity_pcs || 0);
+            totalKgs += Number(row.quantity_kgs || 0);
+          }
           if (row.production_date) pdSet.add(row.production_date);
         });
-
-        setSummaryTotals({
-          pcs: totalPcs,
-          kgs: totalKgs,
-          uniquePDCount: pdSet.size
-        });
       }
+
+      setSummaryTotals({
+        pcs: totalPcs,
+        kgs: totalKgs,
+        uniquePDCount: pdSet.size
+      });
     } catch (e) {
       console.warn('Failed to fetch summary metrics:', e);
     }
@@ -431,10 +424,56 @@ const InventoryList: React.FC<InventoryListProps> = ({
     }
   }, [isBatchOutModalOpen, selectedItemIds, chillerItems]);
 
+  const [allChillerItems, setAllChillerItems] = useState<ChillerItem[]>([]);
+  const [isLoadingPDModal, setIsLoadingPDModal] = useState(false);
+
+  useEffect(() => {
+    if (isPDModalOpen) {
+      const fetchAllActiveStock = async () => {
+        setIsLoadingPDModal(true);
+        try {
+          let query = supabase
+            .from('chiller_stock')
+            .select('*')
+            .in('status', ['IN', 'IN_CHILLER', 'PENDING', 'QC_PENDING', 'APPROVED'])
+            .order('production_date', { ascending: false })
+            .limit(2000);
+
+          const { data, error } = await query;
+          if (!error && data) {
+            const mapped: ChillerItem[] = data.map((item: any) => ({
+              id: item.id ? String(item.id) : String(item.batch_id),
+              batchId: item.batch_id,
+              itemsId: item.items_id,
+              itemCode: itemsMapRef.current[item.items_id]?.code || 'N/A',
+              itemName: itemsMapRef.current[item.items_id]?.name || item.items_id,
+              pcs: Number(item.quantity_pcs || 0),
+              kgs: Number(item.quantity_kgs || 0),
+              productionDate: item.production_date,
+              slaughteringDate: item.slaughtering_date,
+              source: item.source || 'FPS',
+              allocation: item.allocation || 'FPS',
+              entryTimestamp: item.created_at ? new Date(item.created_at).getTime() : Date.now(),
+              status: item.status === 'OUT' || item.status === 'OUT_CHILLER' ? 'OUT_CHILLER' : item.status === 'PENDING' || item.status === 'QC_PENDING' ? 'PENDING_QC' : 'IN_CHILLER',
+              isWIP: Boolean(item.status_WIP || item.status_wip)
+            }));
+            setAllChillerItems(mapped);
+          }
+        } catch (e) {
+          console.warn('Failed to fetch all active stock for PD modal:', e);
+        } finally {
+          setIsLoadingPDModal(false);
+        }
+      };
+      fetchAllActiveStock();
+    }
+  }, [isPDModalOpen]);
+
   const pdBreakdown = useMemo(() => {
+    const sourceItems = allChillerItems.length > 0 ? allChillerItems : chillerItems;
     const groups: { [date: string]: { date: string; pcs: number; kgs: number; items: ChillerItem[] } } = {};
 
-    chillerItems.forEach(item => {
+    sourceItems.forEach(item => {
       const date = item.productionDate || 'TANPA TANGGAL';
       if (!groups[date]) {
         groups[date] = { date, pcs: 0, kgs: 0, items: [] };
@@ -449,7 +488,7 @@ const InventoryList: React.FC<InventoryListProps> = ({
       if (b.date === 'TANPA TANGGAL') return -1;
       return b.date.localeCompare(a.date);
     });
-  }, [chillerItems]);
+  }, [allChillerItems, chillerItems]);
 
   const resetFilters = () => {
     setSearchTerm('');
@@ -1224,49 +1263,58 @@ const InventoryList: React.FC<InventoryListProps> = ({
             </div>
 
             <div className="flex-1 overflow-y-auto space-y-3 pr-1">
-              {pdBreakdown.map((group) => {
-                const isExpanded = expandedPD === group.date;
-                return (
-                  <div key={group.date} className="bg-gray-50 rounded-xl border border-gray-100 overflow-hidden">
-                    <div
-                      onClick={() => setExpandedPD(isExpanded ? null : group.date)}
-                      className="p-3.5 flex items-center justify-between cursor-pointer hover:bg-red-50/50 transition-colors"
-                    >
-                      <div className="flex items-center gap-3">
-                        <span className="text-xs font-black text-red-600 bg-red-50 px-2 py-1 rounded-lg border border-red-100">
-                          PD: {group.date}
-                        </span>
-                        <span className="text-[10px] font-bold text-gray-400 uppercase">
-                          ({group.items.length} Batch)
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-4">
-                        <div className="text-right">
-                          <span className="text-xs font-black text-gray-900">{formatNumber(group.pcs, 0)} Pcs</span>
-                          <span className="text-[10px] font-bold text-gray-400 block">{formatNumber(group.kgs, 2)} Kg</span>
+              {isLoadingPDModal ? (
+                <div className="py-12 text-center flex flex-col items-center justify-center gap-3">
+                  <Loader2 size={24} className="animate-spin text-red-600" />
+                  <span className="text-xs font-black text-gray-400 uppercase tracking-widest">Memuat Semua Tanggal Produksi...</span>
+                </div>
+              ) : pdBreakdown.length > 0 ? (
+                pdBreakdown.map((group) => {
+                  const isExpanded = expandedPD === group.date;
+                  return (
+                    <div key={group.date} className="bg-gray-50 rounded-xl border border-gray-100 overflow-hidden">
+                      <div
+                        onClick={() => setExpandedPD(isExpanded ? null : group.date)}
+                        className="p-3.5 flex items-center justify-between cursor-pointer hover:bg-red-50/50 transition-colors"
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className="text-xs font-black text-red-600 bg-red-50 px-2 py-1 rounded-lg border border-red-100">
+                            PD: {group.date}
+                          </span>
+                          <span className="text-[10px] font-bold text-gray-400 uppercase">
+                            ({group.items.length} Batch)
+                          </span>
                         </div>
-                        {isExpanded ? <ChevronUp size={16} className="text-gray-400" /> : <ChevronDown size={16} className="text-gray-400" />}
-                      </div>
-                    </div>
-
-                    {isExpanded && (
-                      <div className="bg-white p-3 border-t border-gray-100 space-y-2">
-                        {group.items.map(it => (
-                          <div key={it.id} className="flex items-center justify-between text-xs py-1.5 px-2 hover:bg-gray-50 rounded-lg border-b border-gray-50 last:border-none">
-                            <div>
-                              <span className="font-black text-gray-800">{it.itemCode}</span>
-                              <span className="text-[9px] text-gray-400 font-bold block">{it.batchId} • S: {it.source}</span>
-                            </div>
-                            <div className="text-right font-black text-gray-700">
-                              {formatNumber(it.pcs, 0)} Pcs / {formatNumber(it.kgs, 2)} Kg
-                            </div>
+                        <div className="flex items-center gap-4">
+                          <div className="text-right">
+                            <span className="text-xs font-black text-gray-900">{formatNumber(group.pcs, 0)} Pcs</span>
+                            <span className="text-[10px] font-bold text-gray-400 block">{formatNumber(group.kgs, 2)} Kg</span>
                           </div>
-                        ))}
+                          {isExpanded ? <ChevronUp size={16} className="text-gray-400" /> : <ChevronDown size={16} className="text-gray-400" />}
+                        </div>
                       </div>
-                    )}
-                  </div>
-                );
-              })}
+
+                      {isExpanded && (
+                        <div className="bg-white p-3 border-t border-gray-100 space-y-2">
+                          {group.items.map(it => (
+                            <div key={it.id} className="flex items-center justify-between text-xs py-1.5 px-2 hover:bg-gray-50 rounded-lg border-b border-gray-50 last:border-none">
+                              <div>
+                                <span className="font-black text-gray-800">{it.itemCode}</span>
+                                <span className="text-[9px] text-gray-400 font-bold block">{it.batchId} • S: {it.source}</span>
+                              </div>
+                              <div className="text-right font-black text-gray-700">
+                                {formatNumber(it.pcs, 0)} Pcs / {formatNumber(it.kgs, 2)} Kg
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="py-12 text-center text-gray-400 text-xs font-black uppercase">Tidak ada data tanggal produksi</div>
+              )}
             </div>
           </div>
         </div>
